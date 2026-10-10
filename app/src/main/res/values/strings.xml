@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">FocusTube</string>
+    <string name="tagline">Distraction-Free Video Manager</string>
+    <string name="home_title">My Focus</string>
+    <string name="subscriptions_title">Subscribed Channels</string>
+    <string name="playlists_title">Playlists &amp; Groups</string>
+    <string name="pinned_playlist_label">Active Home Playlist</string>
+    <string name="no_distractions_desc">Zero recommended videos, zero comments, zero shorts algorithm.</string>
+</resources>
