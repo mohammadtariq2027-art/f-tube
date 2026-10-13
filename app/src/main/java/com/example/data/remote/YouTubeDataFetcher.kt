@@ -13,7 +13,7 @@ data class FetchedVideo(
     val title: String,
     val channelName: String,
     val description: String = "",
-    val duration: String = "Video",
+    val duration: String = "",
     val thumbnailUrl: String = ""
 )
 
@@ -281,13 +281,26 @@ object YouTubeDataFetcher {
             val desc = unescapeHtml(extractTag(entryXml, "media:description").orEmpty())
             val thumbnail = "https://img.youtube.com/vi/$videoId/hqdefault.jpg"
 
+            var durationStr = ""
+            val durPattern = Pattern.compile("(?:seconds=[\"'](\\d+)[\"']|duration=[\"'](\\d+)[\"'])")
+            val durMatcher = durPattern.matcher(entryXml)
+            if (durMatcher.find()) {
+                val sec = durMatcher.group(1) ?: durMatcher.group(2)
+                sec?.toLongOrNull()?.let {
+                    durationStr = com.example.util.DurationUtils.formatSeconds(it)
+                }
+            }
+            if (durationStr.isBlank()) {
+                durationStr = com.example.util.DurationUtils.formatCleanDuration("", videoId)
+            }
+
             result.add(
                 FetchedVideo(
                     videoId = videoId,
                     title = title.ifBlank { "YouTube Video" },
                     channelName = author,
                     description = desc,
-                    duration = "Video",
+                    duration = durationStr,
                     thumbnailUrl = thumbnail
                 )
             )
@@ -308,20 +321,63 @@ object YouTubeDataFetcher {
         while (matcher.find() && result.size < 50) {
             val videoId = matcher.group(1) ?: continue
             if (seenIds.add(videoId)) {
-                val title = matcher.group(2) ?: matcher.group(3) ?: "Video #$videoId"
+                var title = matcher.group(2) ?: matcher.group(3) ?: "Video #$videoId"
+                title = sanitizeVideoTitle(title)
+
+                var durationStr = ""
+                try {
+                    val timeSnippetStart = matcher.start()
+                    val timeSnippetEnd = kotlin.math.min(html.length, matcher.end() + 800)
+                    val snippet = html.substring(timeSnippetStart, timeSnippetEnd)
+
+                    val timePattern = Pattern.compile("\"simpleText\":\"(\\d{1,2}:\\d{2}(?::\\d{2})?)\"")
+                    val timeM = timePattern.matcher(snippet)
+                    if (timeM.find()) {
+                        durationStr = timeM.group(1).orEmpty()
+                    } else {
+                        val secPattern = Pattern.compile("\"lengthSeconds\":\"(\\d+)\"")
+                        val secM = secPattern.matcher(snippet)
+                        if (secM.find()) {
+                            secM.group(1)?.toLongOrNull()?.let {
+                                durationStr = com.example.util.DurationUtils.formatSeconds(it)
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+
+                if (durationStr.isBlank()) {
+                    durationStr = com.example.util.DurationUtils.formatCleanDuration("", videoId)
+                }
+
                 result.add(
                     FetchedVideo(
                         videoId = videoId,
                         title = unescapeHtml(title),
                         channelName = fallbackChannel,
                         description = "",
-                        duration = "Video",
+                        duration = durationStr,
                         thumbnailUrl = "https://img.youtube.com/vi/$videoId/hqdefault.jpg"
                     )
                 )
             }
         }
         return result
+    }
+
+    private fun sanitizeVideoTitle(raw: String): String {
+        var clean = raw.trim()
+        // If scraping captured JSON fragments like 'Popular videos","navigationEndpoint":{...'
+        if (clean.contains("\",\"") || clean.contains("navigationEndpoint") || clean.contains("clickTrackingParams")) {
+            val idx = clean.indexOf("\",\"")
+            if (idx != -1) {
+                clean = clean.substring(0, idx)
+            }
+            val quoteIdx = clean.indexOf('"')
+            if (quoteIdx != -1 && quoteIdx < clean.length / 2) {
+                clean = clean.substring(0, quoteIdx)
+            }
+        }
+        return clean.trim().ifBlank { "YouTube Video" }
     }
 
     private fun extractTag(xml: String, tagName: String): String? {

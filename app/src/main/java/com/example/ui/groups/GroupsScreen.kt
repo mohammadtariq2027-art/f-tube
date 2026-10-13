@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -86,6 +87,13 @@ fun GroupsScreen(
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var channelTargetGroupId by remember { mutableStateOf<Long?>(null) }
     var groupToDelete by remember { mutableStateOf<SubscriptionGroupEntity?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
+
+    val filteredGroups = remember(groups, searchQuery) {
+        if (searchQuery.isBlank()) groups
+        else groups.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -95,13 +103,66 @@ fun GroupsScreen(
         ) {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "Channel Groups",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
+                    if (isSearchActive) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search groups...") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("local_groups_search_input"),
+                            shape = RoundedCornerShape(10.dp),
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(imageVector = Icons.Default.Close, contentDescription = "Clear")
+                                    }
+                                }
+                            }
+                        )
+                    } else {
+                        Column {
+                            Text(
+                                text = "Channel Groups",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (searchQuery.isNotBlank()) {
+                                Text(
+                                    text = "${filteredGroups.size} of ${groups.size} groups",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                },
+                navigationIcon = {
+                    if (isSearchActive) {
+                        IconButton(onClick = {
+                            isSearchActive = false
+                            searchQuery = ""
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close search"
+                            )
+                        }
+                    }
                 },
                 actions = {
+                    if (!isSearchActive) {
+                        IconButton(
+                            onClick = { isSearchActive = true },
+                            modifier = Modifier.testTag("search_button_groups")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search Groups"
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = onOpenBackupDialog,
                         modifier = Modifier.testTag("backup_button_groups")
@@ -142,13 +203,38 @@ fun GroupsScreen(
                         }
                     }
                 }
+            } else if (filteredGroups.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "No Matching Groups",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "No group matched '$searchQuery'.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Button(onClick = { searchQuery = "" }) {
+                            Text("Clear Search")
+                        }
+                    }
+                }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 88.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    items(groups, key = { it.id }) { group ->
+                    items(filteredGroups, key = { it.id }) { group ->
                         val isPinned = pinnedGroup?.id == group.id
                         val channelsState = remember(group.id) { getChannelsForGroup(group.id) }
                         val channels by channelsState.collectAsState(initial = emptyList())

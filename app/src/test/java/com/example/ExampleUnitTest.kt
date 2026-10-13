@@ -36,4 +36,37 @@ class ExampleUnitTest {
         val bareListId = "PL1234567890abcdef"
         assertEquals("PL1234567890abcdef", FocusTubeRepository.extractPlaylistId(bareListId))
     }
+
+    @Test
+    fun testDurationUtilsNeverReturnsHDOrVideo() {
+        // 1. Should never return "HD" or "Video"
+        val resultFromHD = com.example.util.DurationUtils.formatCleanDuration("HD", "abc12345678")
+        org.junit.Assert.assertNotEquals("HD", resultFromHD)
+        org.junit.Assert.assertNotEquals("Video", resultFromHD)
+
+        val resultFromVideo = com.example.util.DurationUtils.formatCleanDuration("Video", "fNk_zzaMoSs")
+        org.junit.Assert.assertNotEquals("Video", resultFromVideo)
+        org.junit.Assert.assertNotEquals("HD", resultFromVideo)
+
+        // 2. Real timestamp preserves
+        assertEquals("09:52", com.example.util.DurationUtils.formatCleanDuration("09:52", "fNk_zzaMoSs"))
+
+        // 3. ISO 8601 parsing
+        assertEquals("09:52", com.example.util.DurationUtils.formatCleanDuration("PT9M52S", "fNk_zzaMoSs"))
+        assertEquals("1:02:03", com.example.util.DurationUtils.formatCleanDuration("PT1H2M3S", "fNk_zzaMoSs"))
+
+        // 4. Seconds parsing
+        assertEquals("10:00", com.example.util.DurationUtils.formatCleanDuration("600", "fNk_zzaMoSs"))
+    }
+
+    @Test
+    fun testVideoEntityNotesAttachment() {
+        val video = com.example.data.local.entity.VideoEntity(
+            videoId = "test1234567",
+            title = "Test Video",
+            channelName = "Channel",
+            notes = "This is my personal study takeaway!"
+        )
+        assertEquals("This is my personal study takeaway!", video.notes)
+    }
 }

@@ -84,6 +84,7 @@ fun MainApp(
     val allGroups by viewModel.allGroups.collectAsState()
     val allPlaylists by viewModel.allPlaylists.collectAsState()
     val homeVideos by viewModel.homeVideos.collectAsState()
+    val allSavedVideos by viewModel.allSavedVideos.collectAsState()
     val currentPlayingVideo by viewModel.currentPlayingVideo.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val statusMessage by viewModel.statusMessage.collectAsState()
@@ -118,7 +119,8 @@ fun MainApp(
             onToggleCompleted = { viewModel.toggleCompleted(it) },
             onSaveToPlaylist = { v, plId -> viewModel.saveVideoToPlaylist(v, plId) },
             onCreatePlaylistAndSaveVideo = { title, v -> viewModel.createPlaylistAndSaveVideo(title, v) },
-            onFetchDescription = { vId -> viewModel.fetchVideoDescription(vId) }
+            onFetchDescription = { vId -> viewModel.fetchVideoDescription(vId) },
+            onUpdateNotes = { vId, notes -> viewModel.updateVideoNotes(vId, notes) }
         )
         return
     }
@@ -199,6 +201,7 @@ fun MainApp(
                         allGroups = allGroups,
                         allPlaylists = allPlaylists,
                         videos = homeVideos,
+                        allSavedVideos = allSavedVideos,
                         onSelectPinnedGroup = { viewModel.setPinnedGroup(it) },
                         onSelectPinnedPlaylist = { viewModel.setPinnedPlaylist(it) },
                         onSelectVideo = { viewModel.playVideo(it) },

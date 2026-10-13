@@ -61,6 +61,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,6 +76,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.local.entity.PlaylistEntity
 import com.example.data.local.entity.VideoEntity
@@ -89,7 +93,8 @@ fun FocusPlayerView(
     onToggleCompleted: (VideoEntity) -> Unit,
     onSaveToPlaylist: ((VideoEntity, String) -> Unit)? = null,
     onCreatePlaylistAndSaveVideo: ((String, VideoEntity) -> Unit)? = null,
-    onFetchDescription: (suspend (String) -> String)? = null
+    onFetchDescription: (suspend (String) -> String)? = null,
+    onUpdateNotes: ((Long, String) -> Unit)? = null
 ) {
     var isPlayerLoading by remember(video.videoId) { mutableStateOf(true) }
     var isVideoEnded by remember(video.videoId) { mutableStateOf(false) }
@@ -97,6 +102,8 @@ fun FocusPlayerView(
     var isDescriptionExpanded by remember { mutableStateOf(false) }
     var currentDescription by remember(video.id) { mutableStateOf(video.description) }
     var showSaveToPlaylistDialog by remember { mutableStateOf(false) }
+    var showNotesDialog by remember { mutableStateOf(false) }
+    var currentNotes by remember(video.id, video.notes) { mutableStateOf(video.notes) }
     var isAppFullscreen by remember { mutableStateOf(false) }
 
     // HTML5 native Fullscreen view holder
@@ -244,163 +251,177 @@ fun FocusPlayerView(
     }
 
     // 3. Normal Portrait Player Screen
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        // Distraction-Free Top Bar
-        TopAppBar(
-            title = {
-                Column {
-                    Text(
-                        text = headerTitle,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                windowInsets = WindowInsets.statusBars,
+                title = {
+                    Column {
+                        Text(
+                            text = headerTitle,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = Color(0xFF4CAF50),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Distraction-Free • Autoplay Disabled",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF4CAF50)
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.testTag("player_back_button")
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = Color(0xFF4CAF50),
-                            modifier = Modifier.size(12.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Distraction-Free • Autoplay Disabled",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF4CAF50)
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
                         )
                     }
-                }
-            },
-            navigationIcon = {
-                IconButton(
-                    onClick = onBack,
-                    modifier = Modifier.testTag("player_back_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back"
-                    )
-                }
-            },
-            actions = {
-                // Fullscreen Action Button in Top Bar
-                IconButton(
-                    onClick = { isAppFullscreen = true },
-                    modifier = Modifier.testTag("player_fullscreen_top_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Fullscreen,
-                        contentDescription = "Full Screen"
-                    )
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface
-            )
-        )
-
-        // 16:9 Isolated Video Screen (Family Link Compatible, Autoplay Disabled, Zero Suggestions)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .background(Color.Black)
-        ) {
-            ZeroSuggestionPlayer(
-                videoId = video.videoId,
-                replayTrigger = replayTrigger,
-                onLoadingChanged = { isPlayerLoading = it },
-                onVideoEnded = { isVideoEnded = true },
-                onShowFullscreen = { view, callback ->
-                    customFullscreenView = view
-                    customViewCallback = callback
                 },
-                onHideFullscreen = {
-                    customFullscreenView = null
-                    customViewCallback = null
+                actions = {
+                    IconButton(
+                        onClick = { isAppFullscreen = true },
+                        modifier = Modifier.testTag("player_fullscreen_top_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fullscreen,
+                            contentDescription = "Full Screen"
+                        )
+                    }
                 },
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // Loading Indicator
-            if (isPlayerLoading) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(36.dp)
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "Loading Distraction-Free Player...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.LightGray
-                        )
-                    }
-                }
-            }
-
-            // End-Screen Distraction Shield (Prevents YouTube's recommendation matrix)
-            if (isVideoEnded) {
-                DistractionShieldOverlay(
-                    onReplay = {
-                        isVideoEnded = false
-                        replayTrigger++
-                    }
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
-            }
+            )
         }
-
-        // Details, Actions & Description
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+                .padding(innerPadding)
+                .background(MaterialTheme.colorScheme.background)
         ) {
-            Text(
-                text = video.title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
+            // 16:9 Isolated Video Screen (Family Link Compatible, Autoplay Disabled, Zero Suggestions)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(Color.Black)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer
-                ) {
-                    Text(
-                        text = video.channelName,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
+                ZeroSuggestionPlayer(
+                    videoId = video.videoId,
+                    replayTrigger = replayTrigger,
+                    onLoadingChanged = { isPlayerLoading = it },
+                    onVideoEnded = { isVideoEnded = true },
+                    onShowFullscreen = { view, callback ->
+                        customFullscreenView = view
+                        customViewCallback = callback
+                    },
+                    onHideFullscreen = {
+                        customFullscreenView = null
+                        customViewCallback = null
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // Loading Indicator
+                if (isPlayerLoading) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Loading Distraction-Free Player...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.LightGray
+                            )
+                        }
+                    }
                 }
 
-                Text(
-                    text = video.duration,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                // End-Screen Distraction Shield (Prevents YouTube's recommendation matrix)
+                if (isVideoEnded) {
+                    DistractionShieldOverlay(
+                        onReplay = {
+                            isVideoEnded = false
+                            replayTrigger++
+                        }
+                    )
+                }
             }
+
+            // Details, Actions, Notes & Description
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = video.title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Text(
+                            text = video.channelName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    val displayDuration = com.example.util.DurationUtils.formatCleanDuration(video.duration, video.videoId)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = displayDuration,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -493,6 +514,89 @@ fun FocusPlayerView(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Video Notes Section (वीडियो नोट्स)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("video_notes_card"),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                )
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Video Notes / वीडियो नोट्स",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        if (currentNotes.isNotBlank()) {
+                            FilledTonalButton(
+                                onClick = { showNotesDialog = true },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.testTag("edit_notes_button")
+                            ) {
+                                Text("Edit Note")
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (currentNotes.isNotBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = currentNotes,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "इस वीडियो में कोई महत्वपूर्ण बात, सीख या टाइमस्टैम्प नोट करें। यह हमेशा इसी वीडियो के साथ सेव रहेगा।",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = { showNotesDialog = true },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.testTag("add_video_note_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("+ Add Note / नोट जोड़ें")
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             // Video Description Section (Expandable)
             Card(
                 modifier = Modifier
@@ -564,6 +668,20 @@ fun FocusPlayerView(
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
+}
+
+    // Video Notes Dialog
+    if (showNotesDialog) {
+        VideoNotesDialog(
+            initialNotes = currentNotes,
+            videoTitle = video.title,
+            onDismiss = { showNotesDialog = false },
+            onSaveNotes = { newNotes ->
+                currentNotes = newNotes
+                onUpdateNotes?.invoke(video.id, newNotes)
+            }
+        )
+    }
 
     // Save Video to Playlist Dialog (Pick existing or create new playlist)
     if (showSaveToPlaylistDialog) {
@@ -585,6 +703,80 @@ fun FocusPlayerView(
             }
         )
     }
+}
+
+/**
+ * Dialog to attach or edit notes for any video.
+ */
+@Composable
+fun VideoNotesDialog(
+    initialNotes: String,
+    videoTitle: String,
+    onDismiss: () -> Unit,
+    onSaveNotes: (String) -> Unit
+) {
+    var noteText by remember { mutableStateOf(initialNotes) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text("Video Notes / वीडियो नोट्स", fontWeight = FontWeight.Bold)
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = videoTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = noteText,
+                    onValueChange = { noteText = it },
+                    placeholder = { Text("Write your notes, important takeaways, or thoughts here...") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    maxLines = 8
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            noteText = if (noteText.isBlank()) "📌 Takeaway: " else "$noteText\n📌 Takeaway: "
+                        }
+                    ) {
+                        Text("+ Takeaway", style = MaterialTheme.typography.labelSmall)
+                    }
+                    TextButton(
+                        onClick = {
+                            noteText = if (noteText.isBlank()) "⏱ Note: " else "$noteText\n⏱ Note: "
+                        }
+                    ) {
+                        Text("+ Marker", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSaveNotes(noteText.trim())
+                    onDismiss()
+                }
+            ) {
+                Text("Save Note")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 /**

@@ -40,6 +40,9 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
     val pinnedPlaylist: StateFlow<PlaylistEntity?> = repository.pinnedPlaylist
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val allSavedVideos: StateFlow<List<VideoEntity>> = repository.getAllVideos()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // Current playing video
     private val _currentPlayingVideo = MutableStateFlow<VideoEntity?>(null)
     val currentPlayingVideo: StateFlow<VideoEntity?> = _currentPlayingVideo.asStateFlow()
@@ -171,13 +174,14 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val id = FocusTubeRepository.extractVideoId(videoUrlOrId) ?: videoUrlOrId.trim()
             if (id.isNotBlank()) {
+                val cleanDur = com.example.util.DurationUtils.formatCleanDuration("", id)
                 repository.insertVideo(
                     VideoEntity(
                         videoId = id,
                         groupId = groupId,
                         title = title.ifBlank { "Video #$id" },
                         channelName = channelName.ifBlank { "Channel" },
-                        duration = "Video",
+                        duration = cleanDur,
                         thumbnailUrl = "https://img.youtube.com/vi/$id/hqdefault.jpg"
                     )
                 )
@@ -190,13 +194,14 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             val id = FocusTubeRepository.extractVideoId(videoUrlOrId) ?: videoUrlOrId.trim()
             if (id.isNotBlank()) {
+                val cleanDur = com.example.util.DurationUtils.formatCleanDuration("", id)
                 repository.insertVideo(
                     VideoEntity(
                         videoId = id,
                         playlistId = playlistId,
                         title = title.ifBlank { "Video #$id" },
                         channelName = channelName.ifBlank { "Playlist" },
-                        duration = "Video",
+                        duration = cleanDur,
                         thumbnailUrl = "https://img.youtube.com/vi/$id/hqdefault.jpg"
                     )
                 )
@@ -235,6 +240,16 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
             if (_currentPlayingVideo.value?.id == video.id) {
                 _currentPlayingVideo.value = video.copy(isCompleted = !video.isCompleted)
             }
+        }
+    }
+
+    fun updateVideoNotes(videoId: Long, notes: String) {
+        viewModelScope.launch {
+            repository.updateVideoNotes(videoId, notes)
+            if (_currentPlayingVideo.value?.id == videoId) {
+                _currentPlayingVideo.value = _currentPlayingVideo.value?.copy(notes = notes)
+            }
+            _statusMessage.value = "Notes saved"
         }
     }
 

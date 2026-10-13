@@ -20,10 +20,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -35,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -67,6 +70,13 @@ fun PlaylistsScreen(
     onOpenBackupDialog: () -> Unit = {}
 ) {
     var playlistToDelete by remember { mutableStateOf<PlaylistEntity?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
+
+    val filteredPlaylists = remember(playlists, searchQuery) {
+        if (searchQuery.isBlank()) playlists
+        else playlists.filter { it.title.contains(searchQuery, ignoreCase = true) }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -76,13 +86,66 @@ fun PlaylistsScreen(
         ) {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "Playlists",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
+                    if (isSearchActive) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search playlists...") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("local_playlists_search_input"),
+                            shape = RoundedCornerShape(10.dp),
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(imageVector = Icons.Default.Close, contentDescription = "Clear")
+                                    }
+                                }
+                            }
+                        )
+                    } else {
+                        Column {
+                            Text(
+                                text = "Playlists",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (searchQuery.isNotBlank()) {
+                                Text(
+                                    text = "${filteredPlaylists.size} of ${playlists.size} playlists",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                },
+                navigationIcon = {
+                    if (isSearchActive) {
+                        IconButton(onClick = {
+                            isSearchActive = false
+                            searchQuery = ""
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close search"
+                            )
+                        }
+                    }
                 },
                 actions = {
+                    if (!isSearchActive) {
+                        IconButton(
+                            onClick = { isSearchActive = true },
+                            modifier = Modifier.testTag("search_button_playlists")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search Playlists"
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = onOpenBackupDialog,
                         modifier = Modifier.testTag("backup_button_playlists")
@@ -123,13 +186,38 @@ fun PlaylistsScreen(
                         }
                     }
                 }
+            } else if (filteredPlaylists.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "No Matching Playlists",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "No playlist matched '$searchQuery'.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Button(onClick = { searchQuery = "" }) {
+                            Text("Clear Search")
+                        }
+                    }
+                }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 88.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(playlists, key = { it.playlistId }) { playlist ->
+                    items(filteredPlaylists, key = { it.playlistId }) { playlist ->
                         val isPinned = pinnedPlaylist?.playlistId == playlist.playlistId
 
                         Card(

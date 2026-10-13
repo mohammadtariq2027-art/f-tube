@@ -22,22 +22,27 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -73,6 +78,7 @@ fun HomeScreen(
     allGroups: List<SubscriptionGroupEntity>,
     allPlaylists: List<PlaylistEntity>,
     videos: List<VideoEntity>,
+    allSavedVideos: List<VideoEntity> = emptyList(),
     onSelectPinnedGroup: (Long) -> Unit,
     onSelectPinnedPlaylist: (String) -> Unit,
     onSelectVideo: (VideoEntity) -> Unit,
@@ -81,6 +87,29 @@ fun HomeScreen(
     onOpenAddVideoDialog: () -> Unit
 ) {
     var showSwitchSheet by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
+    var searchScopeGlobal by remember { mutableStateOf(true) }
+
+    val filteredFeedVideos = remember(videos, searchQuery) {
+        if (searchQuery.isBlank()) videos
+        else videos.filter {
+            it.title.contains(searchQuery, ignoreCase = true) ||
+            it.channelName.contains(searchQuery, ignoreCase = true) ||
+            it.notes.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    val filteredGlobalVideos = remember(allSavedVideos, searchQuery) {
+        if (searchQuery.isBlank()) allSavedVideos
+        else allSavedVideos.filter {
+            it.title.contains(searchQuery, ignoreCase = true) ||
+            it.channelName.contains(searchQuery, ignoreCase = true) ||
+            it.notes.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    val displayedVideos = if (isSearchActive && searchScopeGlobal) filteredGlobalVideos else filteredFeedVideos
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -88,27 +117,72 @@ fun HomeScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // Home Top App Bar in English
+            // Home Top App Bar with Global & Local Feed Search
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = homeTitle,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                    if (isSearchActive) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text(if (searchScopeGlobal) "Search all saved videos & notes..." else "Search current feed...") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("local_home_search_input"),
+                            shape = RoundedCornerShape(10.dp),
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(imageVector = Icons.Default.Close, contentDescription = "Clear")
+                                    }
+                                }
+                            }
                         )
-                        Text(
-                            text = if (pinnedGroup != null) "Active Group (${videos.size} videos)"
-                            else if (pinnedPlaylist != null) "Active Playlist (${videos.size} videos)"
-                            else "No active feed chosen",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    } else {
+                        Column {
+                            Text(
+                                text = homeTitle,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = if (pinnedGroup != null) "Active Group (${videos.size} videos)"
+                                else if (pinnedPlaylist != null) "Active Playlist (${videos.size} videos)"
+                                else "No active feed chosen",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                navigationIcon = {
+                    if (isSearchActive) {
+                        IconButton(onClick = {
+                            isSearchActive = false
+                            searchQuery = ""
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close search"
+                            )
+                        }
                     }
                 },
                 actions = {
+                    if (!isSearchActive) {
+                        IconButton(
+                            onClick = { isSearchActive = true },
+                            modifier = Modifier.testTag("home_search_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search videos",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     OutlinedButton(
                         onClick = { showSwitchSheet = true },
                         shape = RoundedCornerShape(10.dp),
@@ -135,8 +209,34 @@ fun HomeScreen(
                 )
             )
 
+            // Search Scope Selector (Global across all playlists/groups vs Active feed)
+            if (isSearchActive) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = searchScopeGlobal,
+                        onClick = { searchScopeGlobal = true },
+                        label = { Text("Global (${filteredGlobalVideos.size})") },
+                        leadingIcon = {
+                            Icon(imageVector = Icons.Default.Search, contentDescription = null, modifier = Modifier.size(14.dp))
+                        }
+                    )
+                    FilterChip(
+                        selected = !searchScopeGlobal,
+                        onClick = { searchScopeGlobal = false },
+                        label = { Text("Active Feed (${filteredFeedVideos.size})") }
+                    )
+                }
+            }
+
             // Video List
-            if (videos.isEmpty()) {
+            if (displayedVideos.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -145,19 +245,26 @@ fun HomeScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            text = "No Videos in This Feed",
+                            text = if (isSearchActive) "No Matching Videos" else "No Videos in This Feed",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Add YouTube videos using the '+' button, or tap 'Switch' to select another Group or Playlist.",
+                            text = if (isSearchActive) "No video matched '$searchQuery'."
+                            else "Add YouTube videos using the '+' button, or tap 'Switch' to select another Group or Playlist.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = { showSwitchSheet = true }) {
-                            Text("Select Home Group or Playlist")
+                        if (isSearchActive) {
+                            Button(onClick = { searchQuery = "" }) {
+                                Text("Clear Search")
+                            }
+                        } else {
+                            Button(onClick = { showSwitchSheet = true }) {
+                                Text("Select Home Group or Playlist")
+                            }
                         }
                     }
                 }
@@ -167,7 +274,9 @@ fun HomeScreen(
                     contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 88.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(videos, key = { it.id }) { video ->
+                    items(displayedVideos, key = { it.id }) { video ->
+                        val cleanDuration = com.example.util.DurationUtils.formatCleanDuration(video.duration, video.videoId)
+
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -188,12 +297,12 @@ fun HomeScreen(
                                     .padding(10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Thumbnail with Duration
+                                // Thumbnail with Duration (Enlarged to 145dp, 16:9, rounded corners)
                                 Box(
                                     modifier = Modifier
-                                        .width(112.dp)
+                                        .width(145.dp)
                                         .aspectRatio(16f / 9f)
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .clip(RoundedCornerShape(12.dp))
                                         .background(Color.Black)
                                 ) {
                                     AsyncImage(
@@ -206,76 +315,103 @@ fun HomeScreen(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .background(Color.Black.copy(alpha = 0.25f)),
+                                            .background(Color.Black.copy(alpha = 0.2f)),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Surface(
                                             shape = CircleShape,
-                                            color = Color.Black.copy(alpha = 0.6f),
-                                            modifier = Modifier.size(24.dp)
+                                            color = Color.Black.copy(alpha = 0.65f),
+                                            modifier = Modifier.size(28.dp)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.PlayArrow,
                                                 contentDescription = "Play",
                                                 tint = Color.White,
-                                                modifier = Modifier.padding(3.dp)
+                                                modifier = Modifier.padding(4.dp)
                                             )
                                         }
                                     }
 
+                                    // Video Duration Badge (Displays video runtime e.g. 12:45, never "HD")
                                     Surface(
                                         shape = RoundedCornerShape(4.dp),
-                                        color = Color.Black.copy(alpha = 0.8f),
+                                        color = Color.Black.copy(alpha = 0.85f),
                                         modifier = Modifier
                                             .align(Alignment.BottomEnd)
-                                            .padding(3.dp)
+                                            .padding(4.dp)
                                     ) {
                                         Text(
-                                            text = video.duration,
+                                            text = cleanDuration,
                                             style = MaterialTheme.typography.labelSmall,
                                             color = Color.White,
-                                            fontSize = 9.sp,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                         )
                                     }
                                 }
 
                                 Spacer(modifier = Modifier.width(12.dp))
 
+                                // Video Title (Full text, unclipped) and Channel Name + Duration metadata
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = video.title,
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.SemiBold,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
+                                        maxLines = Int.MAX_VALUE,
+                                        overflow = TextOverflow.Clip
                                     )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = video.channelName,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-
-                                if (onSaveToPlaylist != null) {
-                                    IconButton(onClick = { onSaveToPlaylist(video) }) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlaylistAdd,
-                                            contentDescription = "Save to playlist",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(22.dp)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = video.channelName,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = " • ⏱ $cleanDuration",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium
                                         )
                                     }
-                                }
 
-                                IconButton(onClick = { onToggleCompleted(video) }) {
-                                    Icon(
-                                        imageVector = if (video.isCompleted) Icons.Default.CheckCircle else Icons.Outlined.CheckCircle,
-                                        contentDescription = "Mark done",
-                                        tint = if (video.isCompleted) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                        modifier = Modifier.size(22.dp)
-                                    )
+                                    // Attached Notes Indicator Badge
+                                    if (video.notes.isNotBlank()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                                        ) {
+                                            Text(
+                                                text = "📝 Notes attached",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // In Global Search: Show containing group or playlist origin
+                                    if (isSearchActive && searchScopeGlobal) {
+                                        val sourceLabel = when {
+                                            video.playlistId != null -> allPlaylists.find { it.playlistId == video.playlistId }?.let { "Playlist: ${it.title}" }
+                                            video.groupId != null -> allGroups.find { it.id == video.groupId }?.let { "Group: ${it.name}" }
+                                            else -> null
+                                        }
+                                        if (sourceLabel != null) {
+                                            Spacer(modifier = Modifier.height(3.dp))
+                                            Text(
+                                                text = "📁 $sourceLabel",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.tertiary,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -115,6 +115,15 @@ interface FocusTubeDao {
     @Query("UPDATE videos SET isCompleted = :completed WHERE id = :id")
     suspend fun setVideoCompleted(id: Long, completed: Boolean)
 
+    @Query("UPDATE videos SET notes = :notes WHERE id = :id")
+    suspend fun updateVideoNotes(id: Long, notes: String)
+
+    @Query("SELECT * FROM videos WHERE title LIKE '%' || :query || '%' OR channelName LIKE '%' || :query || '%' OR notes LIKE '%' || :query || '%' ORDER BY id DESC")
+    fun searchAllVideos(query: String): Flow<List<VideoEntity>>
+
+    @Query("SELECT * FROM videos ORDER BY id DESC")
+    fun getAllVideosFlow(): Flow<List<VideoEntity>>
+
     // === Preferences ===
     @Query("SELECT value FROM app_preferences WHERE `key` = :key LIMIT 1")
     fun getPreference(key: String): Flow<String?>

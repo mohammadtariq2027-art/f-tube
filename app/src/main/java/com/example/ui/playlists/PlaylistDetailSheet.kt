@@ -276,11 +276,13 @@ fun PlaylistDetailScreen(
                                     .padding(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                val cleanDuration = com.example.util.DurationUtils.formatCleanDuration(video.duration, video.videoId)
+
                                 Box(
                                     modifier = Modifier
-                                        .width(100.dp)
+                                        .width(145.dp)
                                         .aspectRatio(16f / 9f)
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .clip(RoundedCornerShape(12.dp))
                                         .background(Color.Black)
                                 ) {
                                     AsyncImage(
@@ -291,59 +293,74 @@ fun PlaylistDetailScreen(
                                     )
                                     Surface(
                                         shape = RoundedCornerShape(4.dp),
-                                        color = Color.Black.copy(alpha = 0.8f),
+                                        color = Color.Black.copy(alpha = 0.85f),
                                         modifier = Modifier
                                             .align(Alignment.BottomEnd)
                                             .padding(4.dp)
                                     ) {
                                         Text(
-                                            text = video.duration,
+                                            text = cleanDuration,
                                             style = MaterialTheme.typography.labelSmall,
                                             color = Color.White,
-                                            fontSize = 9.sp,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.width(10.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = video.title,
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.SemiBold,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
+                                        maxLines = Int.MAX_VALUE,
+                                        overflow = TextOverflow.Clip
                                     )
-                                    Text(
-                                        text = video.channelName,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = video.channelName,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Text(
+                                            text = " • ⏱ $cleanDuration",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
 
-                                IconButton(
-                                    onClick = { onToggleCompleted(video) },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (video.isCompleted) Icons.Default.CheckCircle else Icons.Outlined.CheckCircle,
-                                        contentDescription = "Toggle complete",
-                                        tint = if (video.isCompleted) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                    if (video.notes.isNotBlank()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+                                        ) {
+                                            Text(
+                                                text = "📝 Notes attached",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
                                 }
 
                                 IconButton(
                                     onClick = { onDeleteVideo(video.id) },
-                                    modifier = Modifier.size(32.dp)
+                                    modifier = Modifier.size(36.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Delete,
                                         contentDescription = "Delete video",
-                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
-                                        modifier = Modifier.size(16.dp)
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }

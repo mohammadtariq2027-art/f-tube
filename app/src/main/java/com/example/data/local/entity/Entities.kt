@@ -43,10 +43,11 @@ data class VideoEntity(
     val title: String,
     val channelName: String,
     val description: String = "", // Video description (timestamps, links, summary)
-    val duration: String = "Video",
+    val duration: String = "",
     val thumbnailUrl: String = "",
     val isCompleted: Boolean = false,
     val orderIndex: Int = 0,
+    val notes: String = "", // Personal user notes attached to the video
     val addedAt: Long = System.currentTimeMillis()
 )
 

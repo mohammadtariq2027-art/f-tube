@@ -138,10 +138,19 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                 channelName = video.channelName,
                 description = video.description,
                 duration = video.duration,
-                thumbnailUrl = video.thumbnailUrl
+                thumbnailUrl = video.thumbnailUrl,
+                notes = video.notes
             )
         )
     }
+
+    suspend fun updateVideoNotes(videoId: Long, notes: String) {
+        dao.updateVideoNotes(videoId, notes)
+    }
+
+    fun searchAllVideos(query: String): Flow<List<VideoEntity>> = dao.searchAllVideos(query)
+
+    fun getAllVideos(): Flow<List<VideoEntity>> = dao.getAllVideosFlow()
 
     suspend fun createCustomPlaylist(playlistId: String, title: String): Long {
         return dao.insertPlaylist(
