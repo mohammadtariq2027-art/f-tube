@@ -108,15 +108,6 @@ fun PlaylistDetailScreen(
     }
     val unsyncedVideos = remember(safeVideos) { safeVideos.filter { !it.isSyncedToYouTube } }
 
-    // Instant Purge: If any distraction or music video exists in this playlist, delete it immediately from database
-    LaunchedEffect(videos) {
-        videos.forEach { v ->
-            if (com.example.util.FocusShield.isDistractionVideo(v.title, v.channelName)) {
-                onDeleteVideo(v.id)
-            }
-        }
-    }
-
     // Fallback: If scroll state was reset to index 0 after watching a video in playlist,
     // automatically restore scroll position to the video the user was watching.
     LaunchedEffect(lastPlayedVideoId) {

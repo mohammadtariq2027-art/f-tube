@@ -1,6 +1,6 @@
 {
-  "summary": "FocusTube: Complete Resolution for Music & Distraction Video Leaks. Detailed explanation of root cause analysis from the screenshot (Bhain Nanki, Savanna, Bom Diggy Diggy), two-factor inspection (channel + title), regex word boundary fixes, and auto-purge of undefined playlists and entertainment videos.",
-  "updatedAt": "2026-11-05T17:22:35.156289439Z",
+  "summary": "FocusTube: Complete Resolution for Educational Videos Being Wrongfully Blocked. Identified fatal collision words in blocked list (such as king colliding with Animal Kingdom/King Ashoka, beats colliding with Wave Beats, acoustic colliding with Acoustic Waves, singer colliding with Singer-Nicolson model, and natak colliding with Karnataka), removed auto-deletion on playlist view and app launch, and introduced a 1-tap 'Allow & Play' override in the player curtain.",
+  "updatedAt": "2026-11-05T19:47:56.086177699Z",
   "requestFeedback": true,
   "userFacing": true
 }

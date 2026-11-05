@@ -159,11 +159,26 @@ class ExampleUnitTest {
                 channelName = "Physics Wallah"
             )
         )
+        // Educational topics that previously collided with music/artist keywords MUST be allowed:
         org.junit.Assert.assertFalse(
-            com.example.util.FocusShield.isDistractionVideo(
-                title = "Drishti IAS Official Video - UPSC Mains Answer Writing",
-                channelName = "Drishti IAS"
-            )
+            "Animal Kingdom in Biology must be allowed",
+            com.example.util.FocusShield.isDistractionVideo("Animal Kingdom Class 11 Biology NCERT Chapter 4", "Magnet Brains")
+        )
+        org.junit.Assert.assertFalse(
+            "King Ashoka in History must be allowed",
+            com.example.util.FocusShield.isDistractionVideo("King Ashoka & The Mauryan Empire", "Khan GS Research Centre")
+        )
+        org.junit.Assert.assertFalse(
+            "Acoustic Waves in Physics must be allowed",
+            com.example.util.FocusShield.isDistractionVideo("Acoustic Waves and Speed of Sound in Physics", "Unacademy JEE")
+        )
+        org.junit.Assert.assertFalse(
+            "Beats in Wave Physics must be allowed",
+            com.example.util.FocusShield.isDistractionVideo("Superposition of Waves and Beats Phenomenon", "Physics Wallah")
+        )
+        org.junit.Assert.assertFalse(
+            "Singer and Nicolson Model in Cell Biology must be allowed",
+            com.example.util.FocusShield.isDistractionVideo("Cell Membrane: Singer and Nicolson Fluid Mosaic Model", "LearnoHub")
         )
     }
 

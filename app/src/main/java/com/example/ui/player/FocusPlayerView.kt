@@ -107,20 +107,23 @@ fun FocusPlayerView(
     onUpdateNotes: ((Long, String) -> Unit)? = null,
     onDeleteVideo: ((Long) -> Unit)? = null
 ) {
-    // 🛡️ Instant Focus Shield Interceptor: If this is a music or distraction video, block it instantly!
+    // 🛡️ Focus Shield Interceptor: If this is flagged as distraction, allow user to confirm or override
+    var userAllowedByOverride by remember(video.id) { mutableStateOf(false) }
     val isDistraction = remember(video.title, video.channelName) {
         com.example.util.FocusShield.isDistractionVideo(video.title, video.channelName)
     }
 
-    if (isDistraction) {
-        // Immediately purge from database so it never appears again
-        LaunchedEffect(video.id) {
-            onDeleteVideo?.invoke(video.id)
-        }
-
+    if (isDistraction && !userAllowedByOverride) {
         DistractionBlockedCurtain(
             videoTitle = video.title,
-            onBack = onBack
+            onBack = onBack,
+            onAllowAndPlay = {
+                userAllowedByOverride = true
+            },
+            onDeleteAndBack = {
+                onDeleteVideo?.invoke(video.id)
+                onBack()
+            }
         )
         return
     }
@@ -1286,13 +1289,18 @@ fun ZeroSuggestionPlayer(
 
 /**
  * Focus Shield Blocked Curtain:
- * Displayed when a user clicks on an entertainment, music, comedy, movie, or gaming video.
- * Immediately halts playback and purges the distraction.
+ * Displayed when a video is flagged as potential distraction.
+ * Provides user with full control:
+ * 1. Allow & Play ("यह पढ़ाई/काम का वीडियो है - चालू करें")
+ * 2. Block & Remove ("हटा दें")
+ * 3. Back
  */
 @Composable
 fun DistractionBlockedCurtain(
     videoTitle: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onAllowAndPlay: () -> Unit = {},
+    onDeleteAndBack: () -> Unit = {}
 ) {
     Box(
         modifier = Modifier
@@ -1342,7 +1350,7 @@ fun DistractionBlockedCurtain(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "This content matches music, movies, comedy, or distraction and has been blocked and removed. FocusTube is strictly dedicated to work, farming, manufacturing, business, and skill learning.",
+                text = "अगर यह वीडियो आपकी पढ़ाई, शिक्षा, या काम से जुड़ा है, तो आप 'Allow & Play' दबाकर इसे तुरंत चला सकते हैं।",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color(0xFFB0BEC5),
                 textAlign = TextAlign.Center
@@ -1350,13 +1358,35 @@ fun DistractionBlockedCurtain(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // Primary Option 1: Allow & Play (for educational & important videos)
             Button(
-                onClick = onBack,
-                shape = RoundedCornerShape(10.dp)
+                onClick = onAllowAndPlay,
+                shape = RoundedCornerShape(10.dp),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                ),
+                modifier = Modifier.fillMaxWidth(0.85f)
             ) {
-                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Back to Work / वापस जाएं")
+                Text("📖 Allow & Play (यह पढ़ाई का वीडियो है)")
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Primary Option 2: Block & Delete
+            androidx.compose.material3.OutlinedButton(
+                onClick = onDeleteAndBack,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth(0.85f)
+            ) {
+                Text("🚫 Block & Delete / हटा दें", color = MaterialTheme.colorScheme.error)
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            androidx.compose.material3.TextButton(
+                onClick = onBack
+            ) {
+                Text("Back / वापस जाएं", color = Color.LightGray)
             }
         }
     }

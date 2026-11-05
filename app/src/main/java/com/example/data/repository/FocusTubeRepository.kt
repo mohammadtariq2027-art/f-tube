@@ -45,7 +45,7 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
      * Real fetch and add of channel + its videos
      */
     suspend fun fetchAndAddChannelToGroup(rawInput: String, groupId: Long): String {
-        val result = YouTubeDataFetcher.fetchChannel(rawInput)
+        val result = YouTubeDataFetcher.fetchChannel(rawInput, maxContinuationPages = 35)
 
         // Strict Focus Shield validation: Block entertainment, movies, music, prank, roasts, etc.
         val sampleTitles = result.videos.take(20).map { it.title }
@@ -97,7 +97,9 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                         orderIndex = startOrder + index
                     )
                 }
-                dao.insertVideos(videoEntities)
+                videoEntities.chunked(400).forEach { batch ->
+                    dao.insertVideos(batch)
+                }
             }
         }
         return "${result.channelName} added with ${safeVideos.size} videos (Focus Shield Active)"
@@ -245,7 +247,9 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                         orderIndex = startOrder + index
                     )
                 }
-                dao.insertVideos(videoEntities)
+                videoEntities.chunked(400).forEach { batch ->
+                    dao.insertVideos(batch)
+                }
             }
         }
         return "'$finalTitle' added with ${safeVideos.size} videos (Focus Shield Active)"
@@ -283,7 +287,9 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                         orderIndex = startOrder + index
                     )
                 }
-                dao.insertVideos(videoEntities)
+                videoEntities.chunked(400).forEach { batch ->
+                    dao.insertVideos(batch)
+                }
             }
             Result.success(newVideos.size)
         } catch (e: Exception) {
@@ -304,7 +310,7 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
             for (ch in channels) {
                 try {
                     val query = ch.handleOrUrl.ifBlank { ch.name }
-                    val result = YouTubeDataFetcher.fetchChannel(query, maxContinuationPages = 1)
+                    val result = YouTubeDataFetcher.fetchChannel(query, maxContinuationPages = 15)
 
                     // Identify genuinely new videos from this channel, filtering out any casual distraction videos and duplicates
                     val safeVideos = result.videos.filterNot { FocusShield.isDistractionVideo(it.title, it.channelName) }
@@ -325,7 +331,9 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                                 orderIndex = index
                             )
                         }
-                        dao.insertVideos(videoEntities)
+                        videoEntities.chunked(400).forEach { batch ->
+                            dao.insertVideos(batch)
+                        }
                         newVideos.forEach { existingIds.add(it.videoId) }
                         totalAdded += newVideos.size
                     }
@@ -429,8 +437,9 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
     }
 
     /**
-     * Purges any distraction, music, song, movie, comedy, or gaming videos
-     * currently in the database to ensure the app is 100% clean.
+     * Purges any verified distraction, music, song, movie, comedy, or gaming videos
+     * currently in the database to ensure the app is clean.
+     * Never deletes valid user playlists.
      */
     suspend fun purgeAllDistractions(): Int {
         val allVideos = dao.getAllVideosSnapshot()
@@ -441,17 +450,11 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                 purgedCount++
             }
         }
-        // Clean up or rename any playlists with title "undefined" or empty distraction playlists
+        // Clean up or rename any playlists with title "undefined"
         val allPlaylists = dao.getAllPlaylistsSnapshot()
         for (pl in allPlaylists) {
-            val vids = dao.getVideosForPlaylistSnapshot(pl.playlistId)
-            val remainingSafe = vids.filterNot { FocusShield.isDistractionVideo(it.title, it.channelName) }
-            if (pl.title.equals("undefined", ignoreCase = true) || remainingSafe.isEmpty()) {
-                if (remainingSafe.isEmpty() && !pl.isPinnedHome) {
-                    dao.deletePlaylist(pl.playlistId)
-                } else if (pl.title.equals("undefined", ignoreCase = true)) {
-                    dao.insertPlaylist(pl.copy(title = "My Playlist"))
-                }
+            if (pl.title.equals("undefined", ignoreCase = true) || pl.title.isBlank()) {
+                dao.insertPlaylist(pl.copy(title = "Study Playlist"))
             }
         }
         return purgedCount

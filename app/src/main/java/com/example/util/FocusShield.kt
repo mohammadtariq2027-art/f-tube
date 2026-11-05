@@ -94,79 +94,74 @@ object FocusShield {
     // Banned Categories per User Request:
     // 1. Music & Songs (म्यूजिक/गाने, एल्बम, सिंगर्स, लेबल्स)
     private val MUSIC_KEYWORDS = listOf(
-        // Core music & song identifiers
-        "song", "songs", "music", "gaana", "geet", "gana", "lyrics", "lyrical video", "audio track",
-        "official music video", "official video song", "full video song", "remix song", "video song",
-        "music video", "audio song", "full audio", "jukebox", "ost", "soundtrack",
-        "album", "remix", "lofi", "lo-fi", "mashup", "unplugged", "acoustic", "slowed", "reverb",
-        "slowed+reverb", "slowed and reverb", "bass boosted", "beats", "dj mix", "dj remix",
-        "dholki mix", "hook step", "orchestra", "instrumental", "playback", "ghazal", "qawwali",
-        "bhajan", "aarti", "kirtan", "melody", "sangeet", "musical", "singer", "singing",
+        // Core music & song identifiers (explicit compound phrases to avoid colliding with educational topics like "Animal Kingdom", "Beats in Waves", "Acoustic Waves")
+        "video song", "audio song", "music video", "official music video", "official video song",
+        "full video song", "full audio song", "remix song", "lyrical video", "lyric video", "full song",
+        "jukebox", "ost song", "soundtrack song", "lofi beats", "slowed+reverb", "slowed and reverb",
+        "bass boosted beats", "dj remix", "dholki mix", "hook step dance", "playback singer",
+        "ghazal song", "qawwali song", "bhajan song", "aarti song", "kirtan song",
         "bhojpuri song", "punjabi song", "hindi song", "bollywood song", "haryanvi song",
-        "item song", "lofi beats", "hip hop song", "rap song", "pop song", "romantic song",
+        "item song", "hip hop song", "rap song", "pop song", "romantic song",
         "sad song", "dance song", "party song", "love song", "hit song", "top songs",
-        "8k video song", "4k video song", "hd video song", "8k video", "official audio", "visualizer",
+        "8k video song", "4k video song", "hd video song", "8k video",
 
         // Music Record Labels & Distribution Channels
         "t-series", "tseries", "zee music", "speed records", "sony music", "saregama",
-        "desi music factory", "tips official", "tips music", "yrf music", "yrf", "times music",
-        "white hill music", "white hill records", "geet mp3", "desi melodies", "panj-aab", "vyrl originals",
-        "aditya music", "lahari music", "anand audio", "wave music", "state studio", "onima",
-        "onima live", "onima records", "vevo", "sound recording", "t-series classics",
+        "desi music factory", "tips official", "tips music", "yrf music", "yrf records", "times music",
+        "white hill music", "white hill records", "geet mp3", "desi melodies", "panj-aab records", "vyrl originals",
+        "aditya music", "lahari music", "anand audio", "wave music", "state studio", "onima records",
+        "onima live", "onima", "vevo", "sound recording", "t-series classics",
 
         // Prominent Artists / Singers / Bands (Hindi, Punjabi, Bhojpuri, English, International)
-        "arijit singh", "arijit", "badshah", "sidhu moose wala", "sidhu moosewala", "diljit dosanjh",
-        "diljit", "yo yo honey singh", "honey singh", "karan aujla", "shreya ghoshal", "sonu nigam",
+        "arijit singh", "badshah rapper", "sidhu moose wala", "sidhu moosewala", "diljit dosanjh",
+        "yo yo honey singh", "honey singh", "karan aujla", "shreya ghoshal", "sonu nigam",
         "atif aslam", "jubin nautiyal", "neha kakkar", "tony kakkar", "mc stan", "emiway bantai",
-        "emiway", "raftaar", "divine", "king", "anuv jain", "prateek kuhad", "darshan raval",
+        "raftaar rapper", "divine rapper", "anuv jain", "prateek kuhad", "darshan raval",
         "armaan malik", "sunidhi chauhan", "kumar sanu", "alka yagnik", "udit narayan", "khesari lal",
-        "pawan singh", "shilpi raj", "pramod premi", "b praak", "jaani", "guru randhawa",
+        "pawan singh", "shilpi raj", "pramod premi", "b praak", "jaani music", "guru randhawa",
         "veet baljit", "zack knight", "jasmin walia", "savanna", "sonu ke titu", "bom diggy",
         "bom diggy diggy", "bhain nanki", "mos ma luj", "mos ma luj djal synin o",
-        "justin bieber", "taylor swift", "eminem", "drake", "bts", "blackpink", "ed sheeran",
+        "justin bieber", "taylor swift", "eminem", "bts songs", "blackpink", "ed sheeran",
         "billie eilish", "the weeknd", "ariana grande", "dua lipa", "alan walker"
     )
 
     // 2. Movies & Cinema (फिल्म, मूवी, ट्रेलर, सीरियल)
     private val MOVIE_KEYWORDS = listOf(
-        "full movie", "south movie", "hindi dubbed movie", "hollywood movie", "bollywood movie",
-        "tollywood movie", "blockbuster movie", "movie trailer", "official trailer",
-        "teaser trailer", "box office collection", "cinema review", "film review",
-        "web series episode", "full episode", "natak", "daily soap", "serial episode",
-        "drama episode"
+        "full movie hd", "south movie hindi dubbed", "hollywood movie hindi dubbed", "bollywood movie hd",
+        "tollywood movie hd", "blockbuster movie hd", "official movie trailer", "teaser trailer movie",
+        "box office collection", "cinema review", "film review", "web series full episode",
+        "daily soap serial", "serial full episode", "drama serial episode"
     )
 
     // 3. Comedy & Pranks (कॉमेडी, प्रैंक, चुटकुले)
     private val COMEDY_KEYWORDS = listOf(
-        "comedy", "standup comedy", "stand-up comedy", "funny comedy", "hasya", "chutkule",
-        "prank", "pranks", "public prank", "funny moments", "funny video", "comedy vines",
+        "standup comedy", "stand-up comedy", "funny comedy vines", "hasya kavi",
+        "public prank gone wrong", "funny prank video", "comedy vines",
         "bb ki vines", "ashish chanchlani", "round2hell", "round 2 hell", "mythpat comedy",
-        "samay raina", "munawar faruqui", "zakir khan", "harsh beniwal", "amit bhadana comedy",
-        "memes compilation", "troll video", "meme compilation"
+        "samay raina standup", "munawar faruqui comedy", "zakir khan standup", "harsh beniwal comedy",
+        "amit bhadana comedy", "memes compilation", "troll video compilation"
     )
 
     // 4. Roasting (रोस्टिंग)
     private val ROASTING_KEYWORDS = listOf(
-        "roast", "roasting", "roast video", "carryminati", "triggered insaan",
-        "fukra insaan", "elvish yadav", "thara bhai joginder", "cringe roast",
-        "tiktok roast", "instagram roast", "meme roast"
+        "carryminati roast", "roast video", "triggered insaan roast",
+        "fukra insaan roast", "elvish yadav roast", "thara bhai joginder roast", "cringe roast video",
+        "tiktok roast", "instagram roast"
     )
 
     // 5. Gaming (गेमिंग / कैजुअल गेमप्ले)
     private val GAMING_KEYWORDS = listOf(
-        "gameplay", "gaming", "pubg", "bgmi", "free fire", "freefire", "gta 5", "gta v",
-        "gta gameplay", "minecraft gameplay", "minecraft", "roblox", "fortnite",
+        "pubg", "bgmi", "free fire", "freefire", "gta 5", "gta v",
+        "gameplay", "gaming", "minecraft gameplay", "roblox gameplay", "fortnite",
         "valorant", "total gaming", "techno gamerz", "mortal gaming", "dynamo gaming",
-        "live stream game", "games live stream"
+        "live stream gameplay", "games live stream"
     )
 
     // 6. Useless / Sensational News & Gossip (फालतू की न्यूज, मसाला, गॉसिप)
     private val SENSATIONAL_NEWS_GOSSIP_KEYWORDS = listOf(
-        "breaking news", "sensational news", "masala news", "viral news", "celebrity news",
-        "bollywood news", "gossip", "paparazzi", "fake news", "khulasa news", "sunil pal",
-        "bigg boss", "biggboss", "shouting debate", "news debate drama", "hallabol",
-        "viral scandal", "trending drama", "dating show", "flirting", "tiktok compilation",
-        "reels compilation", "cringe", "horoscope", "astrology", "rashifal"
+        "masala news", "celebrity gossip news", "bollywood gossip news", "paparazzi viral",
+        "fake news viral", "khulasa news drama", "bigg boss drama", "biggboss full episode",
+        "shouting debate drama", "news debate drama", "viral scandal", "trending dating show"
     )
 
     // Combined Blocked Keywords for distraction filtering
@@ -470,8 +465,9 @@ object FocusShield {
                     lowerTitle.contains("ft."))) ||
             lowerTitle.contains("full movie hd") || lowerTitle.contains("south movie hindi dubbed") ||
             lowerTitle.contains("carryminati roast") || lowerTitle.contains("roast video") ||
-            lowerTitle.contains("pubg gameplay") || lowerTitle.contains("bgmi gameplay") ||
-            lowerTitle.contains("free fire gameplay") || lowerTitle.contains("gta 5 gameplay")) {
+            lowerTitle.contains("pubg") || lowerTitle.contains("bgmi") ||
+            lowerTitle.contains("free fire") || lowerTitle.contains("gta 5") ||
+            lowerTitle.contains("gameplay")) {
             return true
         }
 

@@ -64,9 +64,26 @@ object YouTubeDataFetcher {
         val videos = mutableListOf<FetchedVideo>()
         val seenVideoIds = mutableSetOf<String>()
 
+        // If input is a channel handle, URL, or UC channel ID, resolve via channel fetcher / uploads playlist
+        if (cleanPlaylistId.contains("/@") || cleanPlaylistId.startsWith("@") || cleanPlaylistId.contains("/channel/")) {
+            val chResult = fetchChannel(cleanPlaylistId, maxContinuationPages = 35)
+            val plId = if (chResult.channelId.startsWith("UC")) "UU" + chResult.channelId.removePrefix("UC") else "ch_" + System.currentTimeMillis()
+            return@withContext FetchedPlaylistResult(
+                playlistId = plId,
+                title = chResult.channelName.ifBlank { "YouTube Playlist" },
+                videos = chResult.videos
+            )
+        }
+
+        val actualPlaylistId = if (cleanPlaylistId.startsWith("UC") && cleanPlaylistId.length == 24) {
+            "UU" + cleanPlaylistId.removePrefix("UC")
+        } else {
+            cleanPlaylistId
+        }
+
         // 1. Scrape YouTube Playlist Webpage
         try {
-            val playlistUrl = "https://www.youtube.com/playlist?list=$cleanPlaylistId"
+            val playlistUrl = "https://www.youtube.com/playlist?list=$actualPlaylistId"
             val request = Request.Builder()
                 .url(playlistUrl)
                 .header("User-Agent", USER_AGENT)
@@ -122,6 +139,7 @@ object YouTubeDataFetcher {
                 // Follow continuation tokens to fetch all remaining pages (100 videos per page)
                 var continuationPageCount = 0
                 val maxContinuationPages = 35 // up to 3500+ videos
+                var consecutiveZeroPages = 0
 
                 while (!nextContinuationToken.isNullOrBlank() && continuationPageCount < maxContinuationPages) {
                     continuationPageCount++
@@ -130,10 +148,16 @@ object YouTubeDataFetcher {
                         val contResult = fetchBrowseContinuation(nextContinuationToken, apiKey, clientVersion)
                         if (contResult.isNotBlank()) {
                             val contJson = JSONObject(contResult)
+                            val tokenBefore = nextContinuationToken
                             nextContinuationToken = parseVideosAndNextToken(contJson, playlistTitle, seenVideoIds, videos)
                             val added = videos.size - countBefore
                             if (added == 0) {
-                                break // no new videos found on this page
+                                consecutiveZeroPages++
+                                if (consecutiveZeroPages >= 2 || nextContinuationToken.isNullOrBlank() || nextContinuationToken == tokenBefore) {
+                                    break
+                                }
+                            } else {
+                                consecutiveZeroPages = 0
                             }
                         } else {
                             break
@@ -145,7 +169,7 @@ object YouTubeDataFetcher {
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Web scrape failed for playlist $cleanPlaylistId: ${e.message}")
+            Log.w(TAG, "Web scrape failed for playlist $actualPlaylistId: ${e.message}")
         }
 
         // 2. Fallback: If web scraping yielded 0 videos, fallback to Atom RSS Feed (returns 15)
@@ -189,7 +213,7 @@ object YouTubeDataFetcher {
      * Parses the channel's `/videos` tab and follows continuation tokens
      * so that all uploaded videos are loaded into the app.
      */
-    suspend fun fetchChannel(rawInput: String, maxContinuationPages: Int = 2): FetchedChannelResult = withContext(Dispatchers.IO) {
+    suspend fun fetchChannel(rawInput: String, maxContinuationPages: Int = 35): FetchedChannelResult = withContext(Dispatchers.IO) {
         val input = rawInput.trim()
         var channelId = ""
         var channelName = ""
@@ -222,6 +246,29 @@ object YouTubeDataFetcher {
             }
         }
 
+        // If channelId is already known, load the full uploads playlist (UU...) directly!
+        if (channelId.isNotBlank() && channelId.startsWith("UC")) {
+            val uploadsPlaylistId = "UU" + channelId.removePrefix("UC")
+            try {
+                val uploadsResult = fetchPlaylist(uploadsPlaylistId)
+                if (uploadsResult.videos.isNotEmpty()) {
+                    for (v in uploadsResult.videos) {
+                        if (seenVideoIds.add(v.videoId)) {
+                            videos.add(v)
+                        }
+                    }
+                    if (channelName.isBlank()) {
+                        channelName = uploadsResult.title
+                            .replace(" - YouTube", "")
+                            .replace("Uploads from ", "")
+                            .trim()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Fast uploads playlist fetch failed: ${e.message}")
+            }
+        }
+
         // Construct channel /videos tab URL
         val channelVideosUrl = when {
             channelId.isNotBlank() -> "https://www.youtube.com/channel/$channelId/videos"
@@ -233,14 +280,14 @@ object YouTubeDataFetcher {
             else -> "https://www.youtube.com/@${input.replace(" ", "")}/videos"
         }
 
-        // 2. Real-time RSS Feed: If channelId is known, fetch instant upload feed first
-        if (channelId.isNotBlank()) {
+        // 2. Real-time RSS Feed: If channelId is known and videos is empty, fetch instant upload feed first
+        if (channelId.isNotBlank() && videos.isEmpty()) {
             fetchRssVideos(channelId, seenVideoIds, videos).let {
                 if (channelName.isBlank() && it.isNotBlank()) channelName = it
             }
         }
 
-        // 3. Scrape channel /videos page and follow continuation tokens for full catalog
+        // 3. Scrape channel /videos page to resolve metadata and fetch/paginate full catalog
         try {
             val request = Request.Builder()
                 .url(channelVideosUrl)
@@ -265,12 +312,6 @@ object YouTubeDataFetcher {
                             channelId = extIdMatcher.group(1) ?: ""
                         }
                     }
-                    // Fetch real-time RSS once channelId is resolved
-                    if (channelId.isNotBlank()) {
-                        fetchRssVideos(channelId, seenVideoIds, videos).let {
-                            if (channelName.isBlank() && it.isNotBlank()) channelName = it
-                        }
-                    }
                 }
 
                 // Extract canonical handle if not known
@@ -282,7 +323,7 @@ object YouTubeDataFetcher {
                 }
 
                 // Extract Channel Name
-                if (channelName.isBlank()) {
+                if (channelName.isBlank() || channelName.equals("undefined", ignoreCase = true)) {
                     val nameMatcher = Pattern.compile("<meta property=\"og:title\" content=\"(.*?)\">").matcher(html)
                     if (nameMatcher.find()) {
                         channelName = unescapeHtml(nameMatcher.group(1))
@@ -297,50 +338,83 @@ object YouTubeDataFetcher {
                     }
                 }
 
-                val apiKey = extractInnertubeApiKey(html).ifBlank { DEFAULT_API_KEY }
-                val clientVersion = extractClientVersion(html).ifBlank { DEFAULT_CLIENT_VERSION }
-
-                // Extract initial batch of videos & continuation token from ytInitialData
-                var nextContinuationToken: String? = null
-                val ytJsonStr = extractYtInitialDataJson(html)
-                if (!ytJsonStr.isNullOrBlank()) {
+                // If channelId was just resolved and we don't have catalog yet, fetch via uploads playlist (100 videos/page)
+                if (channelId.isNotBlank() && channelId.startsWith("UC") && videos.size < 30) {
                     try {
-                        val initJson = JSONObject(ytJsonStr)
-                        nextContinuationToken = parseVideosAndNextToken(initJson, channelName, seenVideoIds, videos)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to parse channel ytInitialData JSON: ${e.message}")
-                    }
-                }
-
-                // Fallback block parser if needed
-                if (videos.isEmpty()) {
-                    parseBlocksFromHtml(html, channelName, seenVideoIds, videos)
-                    if (nextContinuationToken.isNullOrBlank()) {
-                        nextContinuationToken = extractContinuationTokenFallback(html)
-                    }
-                }
-
-                // Follow continuation tokens for channel /videos tab (30 videos per page)
-                var continuationPageCount = 0
-
-                while (!nextContinuationToken.isNullOrBlank() && continuationPageCount < maxContinuationPages) {
-                    continuationPageCount++
-                    val countBefore = videos.size
-                    try {
-                        val contResult = fetchBrowseContinuation(nextContinuationToken, apiKey, clientVersion)
-                        if (contResult.isNotBlank()) {
-                            val contJson = JSONObject(contResult)
-                            nextContinuationToken = parseVideosAndNextToken(contJson, channelName, seenVideoIds, videos)
-                            val added = videos.size - countBefore
-                            if (added == 0) {
-                                break // no new videos found on this page
+                        val uploadsPlaylistId = "UU" + channelId.removePrefix("UC")
+                        val uploadsResult = fetchPlaylist(uploadsPlaylistId)
+                        if (uploadsResult.videos.isNotEmpty()) {
+                            for (v in uploadsResult.videos) {
+                                if (seenVideoIds.add(v.videoId)) {
+                                    videos.add(v.copy(channelName = v.channelName.ifBlank { channelName }))
+                                }
                             }
-                        } else {
-                            break
+                            if (channelName.isBlank() || channelName.equals("undefined", ignoreCase = true)) {
+                                channelName = uploadsResult.title
+                                    .replace(" - YouTube", "")
+                                    .replace("Uploads from ", "")
+                                    .trim()
+                            }
                         }
                     } catch (e: Exception) {
-                        Log.w(TAG, "Channel continuation page $continuationPageCount failed: ${e.message}")
-                        break
+                        Log.w(TAG, "Secondary uploads playlist fetch failed: ${e.message}")
+                    }
+                }
+
+                // If uploads playlist did not return videos, fall back to /videos tab pagination
+                if (videos.size < 30) {
+                    val apiKey = extractInnertubeApiKey(html).ifBlank { DEFAULT_API_KEY }
+                    val clientVersion = extractClientVersion(html).ifBlank { DEFAULT_CLIENT_VERSION }
+
+                    // Extract initial batch of videos & continuation token from ytInitialData
+                    var nextContinuationToken: String? = null
+                    val ytJsonStr = extractYtInitialDataJson(html)
+                    if (!ytJsonStr.isNullOrBlank()) {
+                        try {
+                            val initJson = JSONObject(ytJsonStr)
+                            nextContinuationToken = parseVideosAndNextToken(initJson, channelName, seenVideoIds, videos)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to parse channel ytInitialData JSON: ${e.message}")
+                        }
+                    }
+
+                    // Fallback block parser if needed
+                    if (videos.isEmpty()) {
+                        parseBlocksFromHtml(html, channelName, seenVideoIds, videos)
+                        if (nextContinuationToken.isNullOrBlank()) {
+                            nextContinuationToken = extractContinuationTokenFallback(html)
+                        }
+                    }
+
+                    // Follow continuation tokens for channel /videos tab (30 videos per page)
+                    var continuationPageCount = 0
+                    var consecutiveZeroPages = 0
+
+                    while (!nextContinuationToken.isNullOrBlank() && continuationPageCount < maxContinuationPages) {
+                        continuationPageCount++
+                        val countBefore = videos.size
+                        try {
+                            val contResult = fetchBrowseContinuation(nextContinuationToken, apiKey, clientVersion)
+                            if (contResult.isNotBlank()) {
+                                val contJson = JSONObject(contResult)
+                                val tokenBefore = nextContinuationToken
+                                nextContinuationToken = parseVideosAndNextToken(contJson, channelName, seenVideoIds, videos)
+                                val added = videos.size - countBefore
+                                if (added == 0) {
+                                    consecutiveZeroPages++
+                                    if (consecutiveZeroPages >= 2 || nextContinuationToken.isNullOrBlank() || nextContinuationToken == tokenBefore) {
+                                        break
+                                    }
+                                } else {
+                                    consecutiveZeroPages = 0
+                                }
+                            } else {
+                                break
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Channel continuation page $continuationPageCount failed: ${e.message}")
+                            break
+                        }
                     }
                 }
             }
@@ -686,8 +760,8 @@ object YouTubeDataFetcher {
                     // 3. Check continuation tokens for video list pagination
                     // A) continuationItemRenderer
                     if (obj.has("continuationItemRenderer")) {
-                        val token = obj.optJSONObject("continuationItemRenderer")
-                            ?.optJSONObject("continuationEndpoint")
+                        val cir = obj.optJSONObject("continuationItemRenderer")
+                        val token = cir?.optJSONObject("continuationEndpoint")
                             ?.optJSONObject("continuationCommand")
                             ?.optString("token")
                         if (!token.isNullOrBlank() && token.length > 20) {
@@ -701,6 +775,25 @@ object YouTubeDataFetcher {
                         val cmd = civm?.optJSONObject("continuationCommand")
                         val token = cmd?.optJSONObject("innertubeCommand")?.optString("token")
                             ?: cmd?.optString("token")
+                        if (!token.isNullOrBlank() && token.length > 20) {
+                            nextToken = token
+                        }
+                    }
+
+                    // C) continuationCommand direct
+                    if (obj.has("continuationCommand")) {
+                        val cmd = obj.optJSONObject("continuationCommand")
+                        val token = cmd?.optString("token")
+                            ?: cmd?.optJSONObject("innertubeCommand")?.optString("token")
+                        if (!token.isNullOrBlank() && token.length > 20) {
+                            nextToken = token
+                        }
+                    }
+
+                    // D) continuationEndpoint direct
+                    if (obj.has("continuationEndpoint")) {
+                        val ep = obj.optJSONObject("continuationEndpoint")
+                        val token = ep?.optJSONObject("continuationCommand")?.optString("token")
                         if (!token.isNullOrBlank() && token.length > 20) {
                             nextToken = token
                         }
@@ -727,12 +820,26 @@ object YouTubeDataFetcher {
             }
         }
 
-        // Target contents or onResponseReceivedActions first if available
-        when {
-            jsonObj.has("contents") -> inspect(jsonObj.opt("contents"))
-            jsonObj.has("onResponseReceivedActions") -> inspect(jsonObj.opt("onResponseReceivedActions"))
-            jsonObj.has("continuationContents") -> inspect(jsonObj.opt("continuationContents"))
-            else -> inspect(jsonObj)
+        // Inspect continuation payloads first before static content skeletons
+        var inspectedTarget = false
+        if (jsonObj.has("onResponseReceivedActions")) {
+            inspect(jsonObj.opt("onResponseReceivedActions"))
+            inspectedTarget = true
+        }
+        if (jsonObj.has("onResponseReceivedEndpoints")) {
+            inspect(jsonObj.opt("onResponseReceivedEndpoints"))
+            inspectedTarget = true
+        }
+        if (jsonObj.has("continuationContents")) {
+            inspect(jsonObj.opt("continuationContents"))
+            inspectedTarget = true
+        }
+        if (jsonObj.has("contents")) {
+            inspect(jsonObj.opt("contents"))
+            inspectedTarget = true
+        }
+        if (!inspectedTarget) {
+            inspect(jsonObj)
         }
 
         return nextToken
