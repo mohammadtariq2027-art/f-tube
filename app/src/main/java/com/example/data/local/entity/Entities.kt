@@ -48,6 +48,10 @@ data class VideoEntity(
     val isCompleted: Boolean = false,
     val orderIndex: Int = 0,
     val notes: String = "", // Personal user notes attached to the video
+    val uploadDate: String = "", // Clean relative or absolute upload date (e.g. "3 days ago")
+    val publishedTimestamp: Long = 0L, // Epoch milliseconds for sorting newest-to-oldest
+    val isSyncedToYouTube: Boolean = false, // Track if synced to official YouTube app playlist
+    val syncedAt: Long? = null,
     val addedAt: Long = System.currentTimeMillis()
 )
 

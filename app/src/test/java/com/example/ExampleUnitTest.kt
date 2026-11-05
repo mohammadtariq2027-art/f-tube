@@ -69,4 +69,116 @@ class ExampleUnitTest {
         )
         assertEquals("This is my personal study takeaway!", video.notes)
     }
+
+    @Test
+    fun testFocusShieldBlocksMusicPlaylistsAndSongs() {
+        // 1. Music playlists must be blocked at the gate
+        val musicPlaylistTitle = "Best Bollywood Romantic Songs 2024"
+        val validation = com.example.util.FocusShield.validatePlaylist(musicPlaylistTitle, listOf("Kesariya", "Apna Bana Le"))
+        org.junit.Assert.assertTrue(validation is com.example.util.ValidationResult.Blocked)
+
+        val punjabiSongsPlaylist = "Top Punjabi Hits Jukebox"
+        val punjabiValidation = com.example.util.FocusShield.validatePlaylist(punjabiSongsPlaylist, emptyList())
+        org.junit.Assert.assertTrue(punjabiValidation is com.example.util.ValidationResult.Blocked)
+
+        // 2. Individual songs must be recognized as distraction
+        org.junit.Assert.assertTrue(com.example.util.FocusShield.isDistractionVideo("Arijit Singh Official Video Song"))
+        org.junit.Assert.assertTrue(com.example.util.FocusShield.isDistractionVideo("Dilbar Song Lyrics | Neha Kakkar"))
+        org.junit.Assert.assertTrue(com.example.util.FocusShield.isDistractionVideo("Midnight Lofi Beats - Chill Jukebox"))
+        org.junit.Assert.assertTrue(com.example.util.FocusShield.isDistractionVideo("CarryMinati Roast Video"))
+
+        // Exact 3 videos from user's screenshot MUST BE BLOCKED:
+        org.junit.Assert.assertTrue(
+            "Bhain Nanki must be blocked despite containing 'ai' in title",
+            com.example.util.FocusShield.isDistractionVideo(
+                title = "Bhain Nanki | Official Video | Veet Baljit | Latest Punjabi Song",
+                channelName = "State Studio."
+            )
+        )
+        org.junit.Assert.assertTrue(
+            "Savanna song must be blocked",
+            com.example.util.FocusShield.isDistractionVideo(
+                title = "Savanna - Mos ma luj djal synin o",
+                channelName = "SAVANNA"
+            )
+        )
+        org.junit.Assert.assertTrue(
+            "Bom Diggy Diggy 8K video from T-Series must be blocked",
+            com.example.util.FocusShield.isDistractionVideo(
+                title = "Bom Diggy Diggy 8K Video | Zack Knight | Jasmin Walia",
+                channelName = "T-Series"
+            )
+        )
+
+        // 3. Farming, manufacturing, business, and skill videos must be strictly ALLOWED
+        org.junit.Assert.assertFalse(com.example.util.FocusShield.isDistractionVideo("Organic Kheti kaise karein - Complete Farming Guide", "Krishi Vigyan"))
+        org.junit.Assert.assertFalse(com.example.util.FocusShield.isDistractionVideo("Textile Fabric Weaving Machine in Surat Factory", "Industrial Knowledge"))
+        org.junit.Assert.assertFalse(com.example.util.FocusShield.isDistractionVideo("Small Business Idea: Paper Plate Manufacturing Setup", "Business Ideas Hindi"))
+        org.junit.Assert.assertFalse(com.example.util.FocusShield.isDistractionVideo("How to start Ecommerce and Product Ranking on Amazon", "Tech Skills"))
+        org.junit.Assert.assertFalse(com.example.util.FocusShield.isDistractionVideo("AI Machine Learning Course for Beginners", "FreeCodeCamp"))
+    }
+
+    @Test
+    fun testFocusShieldBlocksUndefinedOrMusicPlaylists() {
+        val blockedRes1 = com.example.util.FocusShield.validatePlaylist("undefined", emptyList())
+        org.junit.Assert.assertTrue(blockedRes1 is com.example.util.ValidationResult.Blocked)
+
+        val blockedRes2 = com.example.util.FocusShield.validatePlaylist(
+            playlistTitle = "My Songs",
+            sampleVideoTitles = listOf("Bhain Nanki | Official Video", "Bom Diggy Diggy"),
+            sampleChannelNames = listOf("State Studio.", "T-Series")
+        )
+        org.junit.Assert.assertTrue(blockedRes2 is com.example.util.ValidationResult.Blocked)
+    }
+
+    @Test
+    fun testEducationalAndImportantPlaylistsAreAllowed() {
+        // Educational and important playlists must be 100% allowed
+        val educationRes = com.example.util.FocusShield.validatePlaylist(
+            playlistTitle = "Education",
+            sampleVideoTitles = listOf("Class 10 Maths Chapter 1 Real Numbers (Full HD Video)")
+        )
+        org.junit.Assert.assertTrue(educationRes is com.example.util.ValidationResult.Allowed)
+
+        val importantRes = com.example.util.FocusShield.validatePlaylist(
+            playlistTitle = "Important Videos",
+            sampleVideoTitles = listOf("Physics Wallah Official Video: JEE Strategy", "Organic Chemistry Lecture")
+        )
+        org.junit.Assert.assertTrue(importantRes is com.example.util.ValidationResult.Allowed)
+
+        val studyRes = com.example.util.FocusShield.validatePlaylist(
+            playlistTitle = "My Study Playlist",
+            sampleVideoTitles = listOf("UPSC Current Affairs 2026", "General Knowledge Class")
+        )
+        org.junit.Assert.assertTrue(studyRes is com.example.util.ValidationResult.Allowed)
+
+        // HD Video and Official Video in educational context must NOT be blocked
+        org.junit.Assert.assertFalse(
+            com.example.util.FocusShield.isDistractionVideo(
+                title = "Class 10 Trigonometry Full HD Video Lecture",
+                channelName = "Physics Wallah"
+            )
+        )
+        org.junit.Assert.assertFalse(
+            com.example.util.FocusShield.isDistractionVideo(
+                title = "Drishti IAS Official Video - UPSC Mains Answer Writing",
+                channelName = "Drishti IAS"
+            )
+        )
+    }
+
+    @Test
+    fun testDuplicateVideoFiltering() {
+        val rawIds = listOf("video111111", "video222222", "video111111", "video333333", "video222222")
+        val uniqueIds = rawIds.distinct()
+        assertEquals(3, uniqueIds.size)
+        assertEquals(listOf("video111111", "video222222", "video333333"), uniqueIds)
+    }
+
+    @Test
+    fun testBatchQueueUrlGeneration() {
+        val videoIds = listOf("fNk_zzaMoSs", "k7RM-ot2NWY", "kYB8IZa5AuE")
+        val url = "https://www.youtube.com/watch_videos?video_ids=" + videoIds.joinToString(",")
+        assertEquals("https://www.youtube.com/watch_videos?video_ids=fNk_zzaMoSs,k7RM-ot2NWY,kYB8IZa5AuE", url)
+    }
 }

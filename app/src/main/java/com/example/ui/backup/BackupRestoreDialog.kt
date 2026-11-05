@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -182,7 +183,25 @@ fun BackupRestoreDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    val autoBackupFile = remember { com.example.util.AutoBackupHelper.getExistingBackupFile(context) }
+                    if (autoBackupFile != null) {
+                        FilledTonalButton(
+                            onClick = {
+                                try {
+                                    importJsonInput = autoBackupFile.readText()
+                                    Toast.makeText(context, "Loaded auto-backup from device storage!", Toast.LENGTH_SHORT).show()
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "Could not read backup file: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Restore from Auto-Backup File (सुरक्षित बैकअप)")
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
 
                     OutlinedButton(
                         onClick = {

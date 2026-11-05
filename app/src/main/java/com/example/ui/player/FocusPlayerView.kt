@@ -10,7 +10,13 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
 import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +28,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -47,9 +54,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import com.example.util.YouTubeSyncHelper
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -78,6 +87,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.local.entity.PlaylistEntity
@@ -94,8 +104,27 @@ fun FocusPlayerView(
     onSaveToPlaylist: ((VideoEntity, String) -> Unit)? = null,
     onCreatePlaylistAndSaveVideo: ((String, VideoEntity) -> Unit)? = null,
     onFetchDescription: (suspend (String) -> String)? = null,
-    onUpdateNotes: ((Long, String) -> Unit)? = null
+    onUpdateNotes: ((Long, String) -> Unit)? = null,
+    onDeleteVideo: ((Long) -> Unit)? = null
 ) {
+    // 🛡️ Instant Focus Shield Interceptor: If this is a music or distraction video, block it instantly!
+    val isDistraction = remember(video.title, video.channelName) {
+        com.example.util.FocusShield.isDistractionVideo(video.title, video.channelName)
+    }
+
+    if (isDistraction) {
+        // Immediately purge from database so it never appears again
+        LaunchedEffect(video.id) {
+            onDeleteVideo?.invoke(video.id)
+        }
+
+        DistractionBlockedCurtain(
+            videoTitle = video.title,
+            onBack = onBack
+        )
+        return
+    }
+
     var isPlayerLoading by remember(video.videoId) { mutableStateOf(true) }
     var isVideoEnded by remember(video.videoId) { mutableStateOf(false) }
     var replayTrigger by remember(video.videoId) { mutableStateOf(0) }
@@ -116,6 +145,53 @@ fun FocusPlayerView(
             val fetched = onFetchDescription(video.videoId)
             if (fetched.isNotBlank()) {
                 currentDescription = fetched
+            }
+        }
+    }
+
+    val context = LocalContext.current
+    fun Context.findActivity(): Activity? {
+        var current = this
+        while (current is ContextWrapper) {
+            if (current is Activity) return current
+            current = current.baseContext
+        }
+        return null
+    }
+    val activity = remember(context) { context.findActivity() }
+
+    // Auto-Orientation Fullscreen Management:
+    // If the video is vertical (Shorts / 9:16), keep orientation in portrait (SENSOR_PORTRAIT).
+    // If horizontal (standard YouTube 16:9), rotate to landscape (SENSOR_LANDSCAPE).
+    val isVerticalVideo = remember(video.title, video.duration) {
+        video.title.contains("#shorts", ignoreCase = true) ||
+        video.title.contains("#short", ignoreCase = true) ||
+        video.title.contains("shorts", ignoreCase = true)
+    }
+
+    DisposableEffect(isAppFullscreen, customFullscreenView) {
+        val inFullscreen = isAppFullscreen || customFullscreenView != null
+        if (inFullscreen && activity != null) {
+            activity.requestedOrientation = if (isVerticalVideo) {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
+            try {
+                androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
+                    hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                    systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
+            } catch (_: Exception) {}
+        }
+        onDispose {
+            if (activity != null) {
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                try {
+                    androidx.core.view.WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
+                        show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                    }
+                } catch (_: Exception) {}
             }
         }
     }
@@ -149,6 +225,7 @@ fun FocusPlayerView(
                 color = Color.Black.copy(alpha = 0.75f),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
+                    .statusBarsPadding()
                     .padding(16.dp)
             ) {
                 IconButton(
@@ -169,157 +246,81 @@ fun FocusPlayerView(
         return
     }
 
-    // 2. App-Level Fullscreen Mode (triggered by our dedicated "Full Screen" button)
-    if (isAppFullscreen) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-        ) {
-            ZeroSuggestionPlayer(
-                videoId = video.videoId,
-                replayTrigger = replayTrigger,
-                onLoadingChanged = { isPlayerLoading = it },
-                onVideoEnded = { isVideoEnded = true },
-                onShowFullscreen = { view, callback ->
-                    customFullscreenView = view
-                    customViewCallback = callback
-                },
-                onHideFullscreen = {
-                    customFullscreenView = null
-                    customViewCallback = null
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // Floating Header Bar in Fullscreen
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = Color.Black.copy(alpha = 0.8f),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 16.dp, start = 16.dp, end = 16.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = Color(0xFF4CAF50),
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = video.title,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    OutlinedButton(
-                        onClick = { isAppFullscreen = false },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CloseFullscreen,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Exit Full Screen")
-                    }
-                }
-            }
-
-            // End-Screen Distraction Shield in Fullscreen
-            if (isVideoEnded) {
-                DistractionShieldOverlay(
-                    onReplay = {
-                        isVideoEnded = false
-                        replayTrigger++
-                    }
-                )
-            }
-        }
-        return
-    }
-
-    // 3. Normal Portrait Player Screen
+    // 2. Continuous Single Player Layout (Seamless fullscreen without unmounting WebView)
     Scaffold(
         topBar = {
-            TopAppBar(
-                windowInsets = WindowInsets.statusBars,
-                title = {
-                    Column {
-                        Text(
-                            text = headerTitle,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Lock,
-                                contentDescription = null,
-                                tint = Color(0xFF4CAF50),
-                                modifier = Modifier.size(12.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
+            if (!isAppFullscreen) {
+                TopAppBar(
+                    windowInsets = WindowInsets.statusBars,
+                    title = {
+                        Column {
                             Text(
-                                text = "Distraction-Free • Autoplay Disabled",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF4CAF50)
+                                text = headerTitle,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = Color(0xFF4CAF50),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Distraction-Free • Autoplay Disabled",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF4CAF50)
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier.testTag("player_back_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back"
                             )
                         }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.testTag("player_back_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = { isAppFullscreen = true },
-                        modifier = Modifier.testTag("player_fullscreen_top_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Fullscreen,
-                            contentDescription = "Full Screen"
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = { isAppFullscreen = true },
+                            modifier = Modifier.testTag("player_fullscreen_top_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fullscreen,
+                                contentDescription = "Full Screen"
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
                 )
-            )
+            }
         }
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background)
+                .padding(if (isAppFullscreen) androidx.compose.foundation.layout.PaddingValues(0.dp) else innerPadding)
+                .background(Color.Black)
         ) {
-            // 16:9 Isolated Video Screen (Family Link Compatible, Autoplay Disabled, Zero Suggestions)
+            // Video Screen (Expands to fill screen in fullscreen mode WITHOUT unmounting the WebView!)
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
-                    .background(Color.Black)
+                modifier = if (isAppFullscreen) {
+                    Modifier.fillMaxSize()
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                }.background(Color.Black)
             ) {
                 ZeroSuggestionPlayer(
                     videoId = video.videoId,
@@ -336,6 +337,29 @@ fun FocusPlayerView(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // Floating Exit Fullscreen Pill when in app fullscreen
+                if (isAppFullscreen) {
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.Black.copy(alpha = 0.65f),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(16.dp)
+                    ) {
+                        IconButton(
+                            onClick = { isAppFullscreen = false },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloseFullscreen,
+                                contentDescription = "Exit Fullscreen",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
 
                 // Loading Indicator
                 if (isPlayerLoading) {
@@ -366,19 +390,22 @@ fun FocusPlayerView(
                         onReplay = {
                             isVideoEnded = false
                             replayTrigger++
-                        }
+                        },
+                        onBack = onBack
                     )
                 }
             }
 
-            // Details, Actions, Notes & Description
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp)
-            ) {
+            // Details, Actions, Notes & Description (Visible only in normal portrait mode)
+            if (!isAppFullscreen) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(MaterialTheme.colorScheme.background)
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp)
+                ) {
                 Text(
                     text = video.title,
                     style = MaterialTheme.typography.titleLarge,
@@ -393,123 +420,68 @@ fun FocusPlayerView(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Text(
-                            text = video.channelName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = video.channelName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                        if (video.uploadDate.isNotBlank()) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = video.uploadDate,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
 
                     val displayDuration = com.example.util.DurationUtils.formatCleanDuration(video.duration, video.videoId)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = displayDuration,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    if (displayDuration.isNotBlank()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "⏱ $displayDuration",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Action Row 1: Full Screen Mode button + Reload Player
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Single Primary Action: Save to Playlist
+            Button(
+                onClick = { showSaveToPlaylistDialog = true },
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("save_to_playlist_button"),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             ) {
-                Button(
-                    onClick = { isAppFullscreen = true },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("enter_fullscreen_button"),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Fullscreen,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Full Screen")
-                }
-
-                OutlinedButton(
-                    onClick = {
-                        isPlayerLoading = true
-                        replayTrigger++
-                    },
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Reload")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Action Row 2: Mark Complete & Save to Playlist (Distraction-Free)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                FilledTonalButton(
-                    onClick = { onToggleCompleted(video) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("toggle_complete_button"),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = if (video.isCompleted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = if (video.isCompleted) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                    ),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(
-                        imageVector = if (video.isCompleted) Icons.Default.CheckCircle else Icons.Outlined.CheckCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = if (video.isCompleted) "Completed" else "Mark Done",
-                        maxLines = 1
-                    )
-                }
-
-                // Save to Playlist Button (always available)
-                OutlinedButton(
-                    onClick = { showSaveToPlaylistDialog = true },
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("save_to_playlist_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlaylistAdd,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Save to Playlist")
-                }
+                Icon(
+                    imageVector = Icons.Default.PlaylistAdd,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Save to Playlist",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -669,6 +641,7 @@ fun FocusPlayerView(
         }
     }
 }
+}
 
     // Video Notes Dialog
     if (showNotesDialog) {
@@ -685,19 +658,26 @@ fun FocusPlayerView(
 
     // Save Video to Playlist Dialog (Pick existing or create new playlist)
     if (showSaveToPlaylistDialog) {
+        val context = LocalContext.current
         SaveVideoToPlaylistDialog(
             video = video,
             allPlaylists = allPlaylists,
             onDismiss = { showSaveToPlaylistDialog = false },
-            onSaveExisting = { targetPlaylistId ->
+            onSaveExisting = { targetPlaylistId, syncYouTube ->
                 onSaveToPlaylist?.invoke(video, targetPlaylistId)
+                if (syncYouTube) {
+                    YouTubeSyncHelper.openInYouTubeApp(context, video.videoId, targetPlaylistId)
+                }
                 showSaveToPlaylistDialog = false
             },
-            onCreateAndSave = { newPlaylistTitle ->
+            onCreateAndSave = { newPlaylistTitle, syncYouTube ->
                 if (onCreatePlaylistAndSaveVideo != null) {
                     onCreatePlaylistAndSaveVideo(newPlaylistTitle, video)
                 } else if (onSaveToPlaylist != null) {
                     onSaveToPlaylist(video, newPlaylistTitle)
+                }
+                if (syncYouTube) {
+                    YouTubeSyncHelper.openInYouTubeApp(context, video.videoId, null)
                 }
                 showSaveToPlaylistDialog = false
             }
@@ -785,7 +765,8 @@ fun VideoNotesDialog(
  */
 @Composable
 private fun DistractionShieldOverlay(
-    onReplay: () -> Unit
+    onReplay: () -> Unit,
+    onBack: (() -> Unit)? = null
 ) {
     Box(
         modifier = Modifier
@@ -830,17 +811,35 @@ private fun DistractionShieldOverlay(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(
-                onClick = onReplay,
-                shape = RoundedCornerShape(10.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Replay,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Replay Video")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (onBack != null) {
+                    OutlinedButton(
+                        onClick = onBack,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Back to List")
+                    }
+                }
+
+                Button(
+                    onClick = onReplay,
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Replay,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Replay Video")
+                }
             }
         }
     }
@@ -854,12 +853,19 @@ fun SaveVideoToPlaylistDialog(
     video: VideoEntity,
     allPlaylists: List<PlaylistEntity>,
     onDismiss: () -> Unit,
-    onSaveExisting: (String) -> Unit,
-    onCreateAndSave: (String) -> Unit
+    onSaveExisting: (String, Boolean) -> Unit,
+    onCreateAndSave: (String, Boolean) -> Unit
 ) {
     var isCreatingNew by remember { mutableStateOf(allPlaylists.isEmpty()) }
     var selectedPlaylistId by remember { mutableStateOf(allPlaylists.firstOrNull()?.playlistId ?: "") }
     var newPlaylistTitle by remember { mutableStateOf("") }
+    var playlistSearchQuery by remember { mutableStateOf("") }
+    var syncWithYouTubeApp by remember { mutableStateOf(false) }
+
+    val filteredPlaylists = remember(allPlaylists, playlistSearchQuery) {
+        if (playlistSearchQuery.isBlank()) allPlaylists
+        else allPlaylists.filter { it.title.contains(playlistSearchQuery, ignoreCase = true) }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -874,10 +880,12 @@ fun SaveVideoToPlaylistDialog(
                 Text(
                     text = "Save '${video.title}' to a playlist:",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 if (allPlaylists.isNotEmpty()) {
                     Row(
@@ -893,7 +901,7 @@ fun SaveVideoToPlaylistDialog(
                                 contentColor = if (!isCreatingNew) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         ) {
-                            Text("Existing")
+                            Text("Existing (${allPlaylists.size})")
                         }
 
                         FilledTonalButton(
@@ -909,7 +917,7 @@ fun SaveVideoToPlaylistDialog(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                 }
 
                 if (isCreatingNew || allPlaylists.isEmpty()) {
@@ -922,37 +930,98 @@ fun SaveVideoToPlaylistDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
                 } else {
-                    Column {
-                        allPlaylists.forEach { pl ->
-                            val isSelected = selectedPlaylistId == pl.playlistId
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 3.dp)
-                                    .clickable { selectedPlaylistId = pl.playlistId },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                                )
-                            ) {
-                                Row(
+                    if (allPlaylists.size > 5) {
+                        OutlinedTextField(
+                            value = playlistSearchQuery,
+                            onValueChange = { playlistSearchQuery = it },
+                            placeholder = { Text("Search playlists...") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp)
+                        )
+                    }
+
+                    // Fully Scrollable Playlist List
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 340.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        if (filteredPlaylists.isEmpty()) {
+                            Text(
+                                text = "No matching playlists found.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        } else {
+                            filteredPlaylists.forEach { pl ->
+                                val isSelected = selectedPlaylistId == pl.playlistId
+                                Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .padding(vertical = 3.dp)
+                                        .clickable { selectedPlaylistId = pl.playlistId },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                    )
                                 ) {
-                                    RadioButton(
-                                        selected = isSelected,
-                                        onClick = { selectedPlaylistId = pl.playlistId }
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = pl.title,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = isSelected,
+                                            onClick = { selectedPlaylistId = pl.playlistId }
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = pl.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { syncWithYouTubeApp = !syncWithYouTubeApp }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = syncWithYouTubeApp,
+                            onCheckedChange = { syncWithYouTubeApp = it }
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column {
+                            Text(
+                                text = "Open in YouTube App to sync ↗",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Save to your official YouTube account playlist",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -963,17 +1032,21 @@ fun SaveVideoToPlaylistDialog(
                 onClick = {
                     if (isCreatingNew || allPlaylists.isEmpty()) {
                         if (newPlaylistTitle.isNotBlank()) {
-                            onCreateAndSave(newPlaylistTitle.trim())
+                            onCreateAndSave(newPlaylistTitle.trim(), syncWithYouTubeApp)
                         }
                     } else {
                         if (selectedPlaylistId.isNotBlank()) {
-                            onSaveExisting(selectedPlaylistId)
+                            onSaveExisting(selectedPlaylistId, syncWithYouTubeApp)
                         }
                     }
                 },
                 enabled = if (isCreatingNew || allPlaylists.isEmpty()) newPlaylistTitle.isNotBlank() else selectedPlaylistId.isNotBlank()
             ) {
-                Text(if (isCreatingNew || allPlaylists.isEmpty()) "Create & Save" else "Save")
+                Text(
+                    if (syncWithYouTubeApp) "Save & Open in YouTube ↗"
+                    else if (isCreatingNew || allPlaylists.isEmpty()) "Create & Save"
+                    else "Save"
+                )
             }
         },
         dismissButton = {
@@ -1017,7 +1090,7 @@ fun ZeroSuggestionPlayer(
         }
     }
 
-    // HTML with STRICT AUTOPLAY DISABLED (autoplay=0), controls enabled, fullscreen enabled
+    // Clean HTML with standard controls, playsinline, and GPU-accelerated CSS distraction hiding
     val htmlContent = remember(videoId) {
         """
         <!DOCTYPE html>
@@ -1042,7 +1115,7 @@ fun ZeroSuggestionPlayer(
               height: 100%;
               border: 0;
             }
-            /* STRICT DISTRACTION REMOVAL STYLES */
+            /* GPU-evaluated CSS distraction hiding: zero JS thread CPU consumption */
             .ytp-pause-overlay,
             .ytp-pause-overlay-container,
             .ytp-endscreen-content,
@@ -1081,13 +1154,13 @@ fun ZeroSuggestionPlayer(
         <body>
           <div id="player-wrap">
             <iframe id="focus-yt-iframe"
-              src="https://www.youtube-nocookie.com/embed/$videoId?enablejsapi=1&autoplay=0&auto_play=0&controls=1&rel=0&modestbranding=1&iv_load_policy=3&fs=1&playsinline=1&showsearch=0"
+              src="https://www.youtube-nocookie.com/embed/$videoId?enablejsapi=1&autoplay=0&controls=1&rel=0&modestbranding=1&iv_load_policy=3&fs=1&playsinline=1"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
               allowfullscreen>
             </iframe>
           </div>
           <script>
-            // PostMessage listener for YouTube iframe events
+            // PostMessage listener for YouTube iframe events without DOM manipulation
             window.addEventListener('message', function(event) {
               try {
                 var data = (typeof event.data === 'string') ? JSON.parse(event.data) : event.data;
@@ -1099,7 +1172,7 @@ fun ZeroSuggestionPlayer(
               } catch(e) {}
             });
 
-            // Iframe API script loader
+            // Iframe API script loader via youtube-nocookie.com for Family Link compatibility
             var tag = document.createElement('script');
             tag.src = "https://www.youtube-nocookie.com/iframe_api";
             var firstScriptTag = document.getElementsByTagName('script')[0];
@@ -1122,26 +1195,6 @@ fun ZeroSuggestionPlayer(
                 });
               } catch(e) {}
             }
-
-            // Suppress overlays and recommendation cards aggressively
-            function purgeDistractions() {
-              try {
-                var selectors = [
-                  '.ytp-pause-overlay', '.ytp-pause-overlay-container',
-                  '.ytp-endscreen-content', '.ytp-endscreen-paginate', '.videowall-endscreen',
-                  '.ytp-ce-element', '.ytp-ce-covering-overlay', '.ytp-ce-expanding-overlay',
-                  '.ytp-cards-teaser', '.ytp-cards-button', '.ytp-cards-container',
-                  '.ytp-suggestion-set', '.ytp-upnext', '.ytp-next-button', '.ytp-prev-button'
-                ];
-                selectors.forEach(function(sel) {
-                  var nodes = document.querySelectorAll(sel);
-                  for (var i = 0; i < nodes.length; i++) {
-                    nodes[i].remove();
-                  }
-                });
-              } catch(e) {}
-            }
-            setInterval(purgeDistractions, 250);
           </script>
         </body>
         </html>
@@ -1157,6 +1210,8 @@ fun ZeroSuggestionPlayer(
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
 
+                // 1. Force hardware acceleration for smooth 60fps/120fps video rendering
+                setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 setBackgroundColor(android.graphics.Color.BLACK)
 
                 settings.apply {
@@ -1165,12 +1220,13 @@ fun ZeroSuggestionPlayer(
                     databaseEnabled = true
                     loadWithOverviewMode = true
                     useWideViewPort = true
-                    // CRITICAL: Strictly forbid auto-playing without user gesture:
-                    mediaPlaybackRequiresUserGesture = true
+                    // CRITICAL FOR 2X SPEED: Must be false so ratechange and adaptive buffering never stall
+                    mediaPlaybackRequiresUserGesture = false
+                    cacheMode = WebSettings.LOAD_DEFAULT
                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                     setSupportZoom(false)
-                    // Custom clean user agent to avoid Chrome child profile supervision interception:
-                    userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36 FocusPlayer/2.0"
+                    // Modern clean mobile Chrome user agent so YouTube delivers hardware-accelerated streams
+                    userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
                 }
 
                 addJavascriptInterface(PlayerJsBridge(), "AndroidBridge")
@@ -1186,18 +1242,14 @@ fun ZeroSuggestionPlayer(
                         onLoadingChanged(false)
                     }
 
-                    // CRITICAL FAMILY LINK & IFRAME POLICY:
-                    // Never block sub-frame, video manifest, or media resource loading.
-                    // Keep all playback inside this WebView, do not redirect to blocked Chrome browser!
                     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                         val url = request?.url?.toString().orEmpty()
                         if (request?.isForMainFrame == false) {
                             return false // DO NOT BLOCK VIDEO RESOURCES OR SUBFRAMES!
                         }
-                        if (url.contains("youtube-nocookie.com") || url.contains("googlevideo.com") || url.contains("ytimg.com") || url.contains("youtube.com/embed")) {
+                        if (url.contains("youtube-nocookie.com") || url.contains("googlevideo.com") || url.contains("ytimg.com") || url.contains("gstatic.com")) {
                             return false
                         }
-                        // Block any outside intents or redirects to browser:
                         return true
                     }
                 }
@@ -1214,7 +1266,7 @@ fun ZeroSuggestionPlayer(
                     }
                 }
 
-                // Base URL set to youtube-nocookie.com so Family Link does not trigger the youtube.com block
+                // Family Link compatible Base URL (youtube-nocookie.com is never blocked by Chrome Family Link)
                 loadDataWithBaseURL(
                     "https://www.youtube-nocookie.com",
                     htmlContent,
@@ -1231,3 +1283,82 @@ fun ZeroSuggestionPlayer(
         }
     )
 }
+
+/**
+ * Focus Shield Blocked Curtain:
+ * Displayed when a user clicks on an entertainment, music, comedy, movie, or gaming video.
+ * Immediately halts playback and purges the distraction.
+ */
+@Composable
+fun DistractionBlockedCurtain(
+    videoTitle: String,
+    onBack: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0F141C)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.error.copy(alpha = 0.2f),
+                modifier = Modifier.size(68.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Shield Locked",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "🛡️ Focus Shield: Content Blocked",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "'$videoTitle'",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.LightGray,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "This content matches music, movies, comedy, or distraction and has been blocked and removed. FocusTube is strictly dedicated to work, farming, manufacturing, business, and skill learning.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFFB0BEC5),
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Button(
+                onClick = onBack,
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Back to Work / वापस जाएं")
+            }
+        }
+    }
+}
+

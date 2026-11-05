@@ -33,12 +33,12 @@ fun AddPlaylistDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("Add YouTube Playlist")
+            Text("Add or Create Playlist")
         },
         text = {
             Column {
                 Text(
-                    text = "Paste any YouTube Playlist URL (public or unlisted). The app will automatically fetch the playlist's videos.",
+                    text = "Paste a YouTube Playlist or Video link to import videos, or enter a Custom Title below to create your own education / important playlist.",
                     style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                     color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -46,8 +46,8 @@ fun AddPlaylistDialog(
                 OutlinedTextField(
                     value = playlistUrlOrId,
                     onValueChange = { playlistUrlOrId = it },
-                    label = { Text("Playlist Link or ID *") },
-                    placeholder = { Text("https://www.youtube.com/playlist?list=PL...") },
+                    label = { Text("Playlist or Video Link (Optional)") },
+                    placeholder = { Text("https://www.youtube.com/playlist?list=PL... or video link") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -66,7 +66,7 @@ fun AddPlaylistDialog(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Custom Title (Optional)") },
+                    label = { Text("Playlist Title (e.g. Important Education)") },
                     placeholder = { Text("Leave blank to use YouTube title") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -76,13 +76,13 @@ fun AddPlaylistDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (playlistUrlOrId.isNotBlank()) {
+                    if (playlistUrlOrId.isNotBlank() || title.isNotBlank()) {
                         onConfirm(playlistUrlOrId.trim(), title.trim())
                     }
                 },
-                enabled = playlistUrlOrId.isNotBlank()
+                enabled = playlistUrlOrId.isNotBlank() || title.isNotBlank()
             ) {
-                Text("Fetch & Add")
+                Text(if (playlistUrlOrId.isNotBlank()) "Fetch & Add" else "Create Playlist")
             }
         },
         dismissButton = {

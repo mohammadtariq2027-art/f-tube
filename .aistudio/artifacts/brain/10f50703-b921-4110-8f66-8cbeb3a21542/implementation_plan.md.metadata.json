@@ -1,6 +1,6 @@
 {
-  "summary": "Revised implementation plan completely eliminating the 'HD' badge from all thumbnails, displaying real video runtime/duration (e.g. 12:45) directly on the thumbnail time badge and next to channel name, adding video-attached personal notes, resolving player control overlap, and expanding video cards.",
-  "updatedAt": "2026-10-13T05:31:07.773746102Z",
+  "summary": "FocusTube: Complete Resolution for Music & Distraction Video Leaks. Detailed explanation of root cause analysis from the screenshot (Bhain Nanki, Savanna, Bom Diggy Diggy), two-factor inspection (channel + title), regex word boundary fixes, and auto-purge of undefined playlists and entertainment videos.",
+  "updatedAt": "2026-11-05T17:22:35.156289439Z",
   "requestFeedback": true,
   "userFacing": true
 }

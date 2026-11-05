@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
@@ -67,7 +68,8 @@ fun PlaylistsScreen(
     onOpenAddVideoToPlaylist: (String) -> Unit,
     onDeletePlaylist: (String) -> Unit,
     onOpenCreatePlaylistDialog: () -> Unit,
-    onOpenBackupDialog: () -> Unit = {}
+    onOpenBackupDialog: () -> Unit = {},
+    onSyncPlaylist: (String) -> Unit = {}
 ) {
     var playlistToDelete by remember { mutableStateOf<PlaylistEntity?>(null) }
     var searchQuery by remember { mutableStateOf("") }
@@ -257,16 +259,31 @@ fun PlaylistsScreen(
                                         )
                                     }
 
-                                    IconButton(
-                                        onClick = { playlistToDelete = playlist },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Delete",
-                                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                                            modifier = Modifier.size(18.dp)
-                                        )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = { onSyncPlaylist(playlist.playlistId) },
+                                            modifier = Modifier
+                                                .size(32.dp)
+                                                .testTag("sync_playlist_${playlist.playlistId}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Sync all videos from YouTube playlist",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { playlistToDelete = playlist },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete",
+                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
                                     }
                                 }
 

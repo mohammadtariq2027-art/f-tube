@@ -16,8 +16,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -26,6 +31,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
@@ -38,9 +44,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import com.example.util.FocusShield
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -82,7 +90,9 @@ fun GroupsScreen(
     onOpenAddVideoToGroup: (Long) -> Unit,
     onDeleteSearchHistoryItem: (String) -> Unit = {},
     onClearSearchHistory: () -> Unit = {},
-    onOpenBackupDialog: () -> Unit = {}
+    onOpenBackupDialog: () -> Unit = {},
+    onSyncGroup: (Long) -> Unit = {},
+    listState: LazyListState = rememberLazyListState()
 ) {
     var showCreateGroupDialog by remember { mutableStateOf(false) }
     var channelTargetGroupId by remember { mutableStateOf<Long?>(null) }
@@ -230,10 +240,71 @@ fun GroupsScreen(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 88.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
+                    item(key = "focus_shield_banner") {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("focus_shield_banner"),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color(0xFF1B5E20).copy(alpha = 0.12f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFF2E7D32)
+                                ) {
+                                    Text(
+                                        text = "🛡️",
+                                        modifier = Modifier.padding(8.dp),
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "Focus Shield Active",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF2E7D32)
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color(0xFF2E7D32)
+                                        ) {
+                                            Text(
+                                                text = "PERMANENT",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Color.White,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Text(
+                                        text = "Work, Farming (खेती), Manufacturing (उद्योग), Business, Skills & Education channels are supported. Distractions (Movies, Songs, Comedy, Roasting, Gaming, Masala News) are blocked.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     items(filteredGroups, key = { it.id }) { group ->
                         val isPinned = pinnedGroup?.id == group.id
                         val channelsState = remember(group.id) { getChannelsForGroup(group.id) }
@@ -273,16 +344,33 @@ fun GroupsScreen(
                                         )
                                     }
 
-                                    IconButton(
-                                        onClick = { groupToDelete = group },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Delete group",
-                                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                                            modifier = Modifier.size(18.dp)
-                                        )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (channels.isNotEmpty()) {
+                                            IconButton(
+                                                onClick = { onSyncGroup(group.id) },
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .testTag("sync_group_${group.id}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = "Sync all channel videos in group",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                        IconButton(
+                                            onClick = { groupToDelete = group },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Delete group",
+                                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
                                     }
                                 }
 
@@ -491,38 +579,158 @@ fun GroupsScreen(
         )
     }
 
-    // Dialog to Add Channel to Group (Real URL & Handle support)
+    // Dialog to Add Channel to Group (Real URL & Handle support) with Focus Shield Curated Directory
     channelTargetGroupId?.let { targetGroupId ->
         var channelInput by remember { mutableStateOf("") }
+        var selectedCategory by remember { mutableStateOf("All") }
+        val categories = remember {
+            listOf(
+                "All",
+                "Business Strategy",
+                "Marketing",
+                "Branding",
+                "E-Commerce",
+                "Product Rank",
+                "Farming",
+                "Manufacturing",
+                "Business",
+                "Coding",
+                "Science",
+                "Productivity"
+            )
+        }
+        val filteredCurated = remember(selectedCategory) {
+            if (selectedCategory == "All") FocusShield.CURATED_GROWTH_CHANNELS
+            else FocusShield.CURATED_GROWTH_CHANNELS.filter { it.category == selectedCategory }
+        }
 
         AlertDialog(
             onDismissRequest = { channelTargetGroupId = null },
-            title = { Text("Add Channel to Group") },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Add Channel")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF2E7D32)
+                    ) {
+                        Text(
+                            text = "🛡️ SHIELD ON",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            },
             text = {
-                Column {
-                    Text(
-                        text = "Paste a YouTube Channel Link, @handle, or Channel ID. The app will automatically fetch the channel and its videos.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    // Shield guidance card
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF2E7D32).copy(alpha = 0.12f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🛡️", style = MaterialTheme.typography.bodyMedium)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Strict Focus Shield: Distractions (Movies, Songs, Comedy, Roasts, Gaming, Masala News) are blocked. All work, farming (खेती), manufacturing (उद्योग), business, and practical skill channels are allowed.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF1B5E20)
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(10.dp))
+
                     OutlinedTextField(
                         value = channelInput,
                         onValueChange = { channelInput = it },
-                        label = { Text("YouTube Channel URL or @handle *") },
-                        placeholder = { Text("e.g. @khanacademy or https://youtube.com/@veritasium") },
+                        label = { Text("Channel URL or @handle *") },
+                        placeholder = { Text("e.g. @khanacademy or @freecodecamp") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     if (searchHistory.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         SearchHistoryChips(
                             historyList = searchHistory,
                             onSelectQuery = { channelInput = it },
                             onDeleteItem = onDeleteSearchHistoryItem,
                             onClearAll = onClearSearchHistory
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Curated Growth Channels Directory
+                    Text(
+                        text = "✨ Verified Growth Channels (1-Tap Add):",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Category filter chips
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(categories) { cat ->
+                            FilterChip(
+                                selected = selectedCategory == cat,
+                                onClick = { selectedCategory = cat },
+                                label = { Text(cat, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Curated channel chips
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        filteredCurated.forEach { curated ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.clickable {
+                                    channelInput = curated.handle
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "+",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = curated.name,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             },

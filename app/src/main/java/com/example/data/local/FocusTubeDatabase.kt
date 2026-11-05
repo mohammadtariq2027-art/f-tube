@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
         AppPreferenceEntity::class,
         SearchHistoryEntity::class
     ],
-    version = 6,
+    version = 8,
     exportSchema = false
 )
 abstract class FocusTubeDatabase : RoomDatabase() {
@@ -64,6 +64,8 @@ abstract class FocusTubeDatabase : RoomDatabase() {
         }
 
         private suspend fun populateInitialData(dao: FocusTubeDao) {
+            val now = System.currentTimeMillis()
+
             // 1. Initial Channel Groups
             val group1 = SubscriptionGroupEntity(
                 id = 1,
@@ -103,7 +105,7 @@ abstract class FocusTubeDatabase : RoomDatabase() {
             )
             dao.insertPlaylists(playlists)
 
-            // 4. Sample Videos with Descriptions
+            // 4. Sample Videos with Descriptions and Upload Dates
             val videos = listOf(
                 // Videos for Group 1 (Science & Math)
                 VideoEntity(
@@ -115,7 +117,10 @@ abstract class FocusTubeDatabase : RoomDatabase() {
                     channelName = "3Blue1Brown",
                     description = "What is a vector? The introduction to essence of linear algebra.\n\nTimestamps:\n0:00 - Introduction\n1:05 - Physics perspective\n3:20 - Computer Science perspective\n5:12 - Mathematics perspective\n8:10 - Vector addition and scalar multiplication.",
                     duration = "09:52",
-                    thumbnailUrl = "https://img.youtube.com/vi/fNk_zzaMoSs/hqdefault.jpg"
+                    thumbnailUrl = "https://img.youtube.com/vi/fNk_zzaMoSs/hqdefault.jpg",
+                    uploadDate = "1 month ago",
+                    publishedTimestamp = now - 30L * 86400 * 1000L,
+                    orderIndex = 2
                 ),
                 VideoEntity(
                     id = 2,
@@ -126,7 +131,10 @@ abstract class FocusTubeDatabase : RoomDatabase() {
                     channelName = "3Blue1Brown",
                     description = "Fundamental concepts of linear algebra: basis vectors, span, and linear combinations.\n\nKey Concepts:\n- Standard basis vectors i-hat and j-hat\n- Linear combinations: a*v + b*w\n- Span: The set of all possible vectors reachable.",
                     duration = "09:59",
-                    thumbnailUrl = "https://img.youtube.com/vi/k7RM-ot2NWY/hqdefault.jpg"
+                    thumbnailUrl = "https://img.youtube.com/vi/k7RM-ot2NWY/hqdefault.jpg",
+                    uploadDate = "2 weeks ago",
+                    publishedTimestamp = now - 14L * 86400 * 1000L,
+                    orderIndex = 1
                 ),
                 VideoEntity(
                     id = 3,
@@ -137,7 +145,10 @@ abstract class FocusTubeDatabase : RoomDatabase() {
                     channelName = "Veritasium",
                     description = "The Mars Climate Orbiter metric vs imperial unit mistake.\n\nIn 1999, NASA lost the Mars Climate Orbiter spacecraft because one engineering team used metric units while another used imperial units.",
                     duration = "14:22",
-                    thumbnailUrl = "https://img.youtube.com/vi/bHIhgxav9LY/hqdefault.jpg"
+                    thumbnailUrl = "https://img.youtube.com/vi/bHIhgxav9LY/hqdefault.jpg",
+                    uploadDate = "3 days ago",
+                    publishedTimestamp = now - 3L * 86400 * 1000L,
+                    orderIndex = 0
                 ),
 
                 // Videos for Group 2 (Coding)
@@ -150,7 +161,10 @@ abstract class FocusTubeDatabase : RoomDatabase() {
                     channelName = "freeCodeCamp",
                     description = "Complete beginners course to modern Android app development with Kotlin and Jetpack Compose.\n\nTopics covered:\n1. Android Studio Setup\n2. Kotlin Basics\n3. Compose UI\n4. State Management\n5. Room Database",
                     duration = "11:38:00",
-                    thumbnailUrl = "https://img.youtube.com/vi/bbMsuI2P15M/hqdefault.jpg"
+                    thumbnailUrl = "https://img.youtube.com/vi/bbMsuI2P15M/hqdefault.jpg",
+                    uploadDate = "5 days ago",
+                    publishedTimestamp = now - 5L * 86400 * 1000L,
+                    orderIndex = 0
                 ),
 
                 // Videos for Playlist 1
@@ -162,7 +176,10 @@ abstract class FocusTubeDatabase : RoomDatabase() {
                     channelName = "3Blue1Brown",
                     description = "What is a vector? The introduction to essence of linear algebra.\n\nTimestamps:\n0:00 - Introduction\n1:05 - Physics perspective\n3:20 - Computer Science perspective\n5:12 - Mathematics perspective",
                     duration = "09:52",
-                    thumbnailUrl = "https://img.youtube.com/vi/fNk_zzaMoSs/hqdefault.jpg"
+                    thumbnailUrl = "https://img.youtube.com/vi/fNk_zzaMoSs/hqdefault.jpg",
+                    uploadDate = "8 years ago",
+                    publishedTimestamp = now - 8L * 365 * 86400 * 1000L,
+                    orderIndex = 0
                 ),
                 VideoEntity(
                     id = 6,
@@ -172,7 +189,10 @@ abstract class FocusTubeDatabase : RoomDatabase() {
                     channelName = "3Blue1Brown",
                     description = "Visualizing linear transformations and matrices geometrically.\n\nTransformations keep grid lines parallel and origin fixed.",
                     duration = "10:59",
-                    thumbnailUrl = "https://img.youtube.com/vi/kYB8IZa5AuE/hqdefault.jpg"
+                    thumbnailUrl = "https://img.youtube.com/vi/kYB8IZa5AuE/hqdefault.jpg",
+                    uploadDate = "8 years ago",
+                    publishedTimestamp = now - (8L * 365 * 86400 * 1000L) + 86400000L,
+                    orderIndex = 1
                 )
             )
             dao.insertVideos(videos)

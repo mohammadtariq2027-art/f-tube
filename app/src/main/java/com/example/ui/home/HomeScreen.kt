@@ -16,7 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,12 +30,14 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -59,12 +64,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.data.local.entity.PlaylistEntity
 import com.example.data.local.entity.SubscriptionGroupEntity
 import com.example.data.local.entity.VideoEntity
@@ -84,25 +91,49 @@ fun HomeScreen(
     onSelectVideo: (VideoEntity) -> Unit,
     onToggleCompleted: (VideoEntity) -> Unit,
     onSaveToPlaylist: ((VideoEntity) -> Unit)? = null,
-    onOpenAddVideoDialog: () -> Unit
+    onOpenAddVideoDialog: () -> Unit,
+    isSyncing: Boolean = false,
+    onSyncGroup: (Long) -> Unit = {},
+    onSyncPlaylist: (String) -> Unit = {},
+    listState: LazyListState = rememberLazyListState(),
+    lastPlayedVideoId: String? = null
 ) {
     var showSwitchSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     var searchScopeGlobal by remember { mutableStateOf(true) }
 
-    val filteredFeedVideos = remember(videos, searchQuery) {
-        if (searchQuery.isBlank()) videos
-        else videos.filter {
+    // Fallback: If for any reason the scroll state was reset to index 0 after watching a video,
+    // automatically restore scroll position to the video the user was watching.
+    LaunchedEffect(lastPlayedVideoId) {
+        if (lastPlayedVideoId != null) {
+            val targetIndex = videos.indexOfFirst { it.videoId == lastPlayedVideoId }
+            if (targetIndex > 2 && listState.firstVisibleItemIndex == 0) {
+                listState.scrollToItem(targetIndex)
+            }
+        }
+    }
+
+    // 🛡️ Focus Shield Real-Time Filter: Never display music, movies, or distractions on screen
+    val safeFeedVideos = remember(videos) {
+        videos.filterNot { com.example.util.FocusShield.isDistractionVideo(it.title, it.channelName) }
+    }
+    val safeGlobalVideos = remember(allSavedVideos) {
+        allSavedVideos.filterNot { com.example.util.FocusShield.isDistractionVideo(it.title, it.channelName) }
+    }
+
+    val filteredFeedVideos = remember(safeFeedVideos, searchQuery) {
+        if (searchQuery.isBlank()) safeFeedVideos
+        else safeFeedVideos.filter {
             it.title.contains(searchQuery, ignoreCase = true) ||
             it.channelName.contains(searchQuery, ignoreCase = true) ||
             it.notes.contains(searchQuery, ignoreCase = true)
         }
     }
 
-    val filteredGlobalVideos = remember(allSavedVideos, searchQuery) {
-        if (searchQuery.isBlank()) allSavedVideos
-        else allSavedVideos.filter {
+    val filteredGlobalVideos = remember(safeGlobalVideos, searchQuery) {
+        if (searchQuery.isBlank()) safeGlobalVideos
+        else safeGlobalVideos.filter {
             it.title.contains(searchQuery, ignoreCase = true) ||
             it.channelName.contains(searchQuery, ignoreCase = true) ||
             it.notes.contains(searchQuery, ignoreCase = true)
@@ -140,16 +171,33 @@ fun HomeScreen(
                         )
                     } else {
                         Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = homeTitle,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFF2E7D32)
+                                ) {
+                                    Text(
+                                        text = "🛡️ SHIELD",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
                             Text(
-                                text = homeTitle,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = if (pinnedGroup != null) "Active Group (${videos.size} videos)"
-                                else if (pinnedPlaylist != null) "Active Playlist (${videos.size} videos)"
+                                text = if (pinnedGroup != null) "Active Group (${videos.size} videos) • Work & Focus Only"
+                                else if (pinnedPlaylist != null) "Active Playlist (${videos.size} videos) • Work & Focus Only"
                                 else "No active feed chosen",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -181,6 +229,34 @@ fun HomeScreen(
                                 contentDescription = "Search videos",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                    }
+                    val canSync = pinnedGroup != null || pinnedPlaylist != null || allGroups.isNotEmpty()
+                    if (canSync) {
+                        IconButton(
+                            onClick = {
+                                when {
+                                    pinnedGroup != null -> onSyncGroup(pinnedGroup.id)
+                                    pinnedPlaylist != null -> onSyncPlaylist(pinnedPlaylist.playlistId)
+                                    allGroups.isNotEmpty() -> onSyncGroup(allGroups.first().id)
+                                }
+                            },
+                            enabled = !isSyncing,
+                            modifier = Modifier.testTag("home_sync_button")
+                        ) {
+                            if (isSyncing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Sync all videos from YouTube",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
                     OutlinedButton(
@@ -269,13 +345,17 @@ fun HomeScreen(
                     }
                 }
             } else {
+                val context = LocalContext.current
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 88.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(displayedVideos, key = { it.id }) { video ->
-                        val cleanDuration = com.example.util.DurationUtils.formatCleanDuration(video.duration, video.videoId)
+                        val cleanDuration = remember(video.duration, video.videoId) {
+                            com.example.util.DurationUtils.formatCleanDuration(video.duration, video.videoId)
+                        }
 
                         Card(
                             modifier = Modifier
@@ -294,19 +374,25 @@ fun HomeScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.Top
                             ) {
-                                // Thumbnail with Duration (Enlarged to 145dp, 16:9, rounded corners)
+                                // Prominent Enlarged Thumbnail (160dp width, 16:9, rounded corners)
                                 Box(
                                     modifier = Modifier
-                                        .width(145.dp)
+                                        .width(160.dp)
                                         .aspectRatio(16f / 9f)
-                                        .clip(RoundedCornerShape(12.dp))
+                                        .clip(RoundedCornerShape(11.dp))
                                         .background(Color.Black)
                                 ) {
                                     AsyncImage(
-                                        model = video.thumbnailUrl,
+                                        model = remember(video.thumbnailUrl) {
+                                            ImageRequest.Builder(context)
+                                                .data(video.thumbnailUrl)
+                                                .crossfade(150)
+                                                .allowHardware(true)
+                                                .build()
+                                        },
                                         contentDescription = video.title,
                                         modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Crop
@@ -315,67 +401,75 @@ fun HomeScreen(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .background(Color.Black.copy(alpha = 0.2f)),
+                                            .background(Color.Black.copy(alpha = 0.15f)),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Surface(
                                             shape = CircleShape,
                                             color = Color.Black.copy(alpha = 0.65f),
-                                            modifier = Modifier.size(28.dp)
+                                            modifier = Modifier.size(26.dp)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.PlayArrow,
                                                 contentDescription = "Play",
                                                 tint = Color.White,
-                                                modifier = Modifier.padding(4.dp)
+                                                modifier = Modifier.padding(3.dp)
                                             )
                                         }
                                     }
 
-                                    // Video Duration Badge (Displays video runtime e.g. 12:45, never "HD")
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = Color.Black.copy(alpha = 0.85f),
-                                        modifier = Modifier
-                                            .align(Alignment.BottomEnd)
-                                            .padding(4.dp)
-                                    ) {
-                                        Text(
-                                            text = cleanDuration,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                        )
+                                    // Video Duration Badge
+                                    if (cleanDuration.isNotBlank()) {
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color.Black.copy(alpha = 0.85f),
+                                            modifier = Modifier
+                                                .align(Alignment.BottomEnd)
+                                                .padding(3.dp)
+                                        ) {
+                                            Text(
+                                                text = cleanDuration,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color.White,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            )
+                                        }
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
 
-                                // Video Title (Full text, unclipped) and Channel Name + Duration metadata
-                                Column(modifier = Modifier.weight(1f)) {
+                                // Video Title and Channel Name + Upload Date Metadata
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                ) {
                                     Text(
                                         text = video.title,
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.SemiBold,
-                                        maxLines = Int.MAX_VALUE,
-                                        overflow = TextOverflow.Clip
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis
                                     )
+
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = video.channelName,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Text(
-                                            text = " • ⏱ $cleanDuration",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.Medium
-                                        )
+
+                                    val metaLine = if (video.uploadDate.isNotBlank()) {
+                                        "${video.channelName} • ${video.uploadDate}"
+                                    } else {
+                                        video.channelName
                                     }
+
+                                    Text(
+                                        text = metaLine,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
 
                                     // Attached Notes Indicator Badge
                                     if (video.notes.isNotBlank()) {
