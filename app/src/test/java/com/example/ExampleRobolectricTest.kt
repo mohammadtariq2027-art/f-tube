@@ -76,6 +76,14 @@ class FocusShieldTest {
     assertEquals(false, com.example.util.FocusShield.isDistractionVideo("Mini Chaff Cutter & Pulverizer Unit"))
     assertEquals(false, com.example.util.FocusShield.isDistractionVideo("How to Rank Products on Amazon First Page with SEO"))
     assertEquals(false, com.example.util.FocusShield.isDistractionVideo("Complete Digital Marketing and Business Strategy Course"))
+
+    // User playlist videos: bayanat, wazaif, business, self-help books
+    assertEquals(false, com.example.util.FocusShield.isDistractionVideo("Surah Muzamil Ka Amal | Sayyed Aminul Qadri Ka Bayan"))
+    assertEquals(false, com.example.util.FocusShield.isDistractionVideo("दूकान मकान रोज़ी रोज़गार में बरकत हासिल का वजीफा"))
+    assertEquals(false, com.example.util.FocusShield.isDistractionVideo("सोचो और अमीर बनो/THINK AND GROW RICH/Chapter -1/ ANIMATED BOOK SUMMARY"))
+    assertEquals(false, com.example.util.FocusShield.isDistractionVideo("Think and Grow Rich book summary in Hindi"))
+    assertEquals(false, com.example.util.FocusShield.isDistractionVideo("Rizq Mai Barkat Ka Khas Wazifa | Aik Wazifa Hadis Se"))
+    assertEquals(false, com.example.util.FocusShield.isDistractionVideo("Mufti Salman Azhari New Bayan | Mazdur Ke Mazduri Ko Lekar"))
   }
 
   @Test
@@ -115,3 +123,4 @@ class FocusShieldTest {
     assertEquals(true, com.example.util.FocusShield.isDistractionVideo("Bom Diggy Diggy 8K Video | Zack Knight | Jasmin Walia", "T-Series"))
   }
 }
+

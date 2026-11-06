@@ -252,7 +252,14 @@ object FocusShield {
         "kotlin", "android", "java", "python", "javascript", "react", "html", "css", "sql",
         "data science", "machine learning", "artificial intelligence", "generative ai", "ai tools",
         "ai tutorial", "chatgpt", "cloud", "aws", "docker", "cybersecurity", "networking",
-        "dsa", "algorithms", "system design"
+        "dsa", "algorithms", "system design",
+
+        // Education, Religious & Spiritual Learning, Bayanat, Moral Teachings & Lectures (बयान, तकरीर, इस्लामिक शिक्षा, वजीफा, दुआ)
+        "bayan", "bayanat", "taqreer", "taqrir", "khitab", "khutbah", "dars", "wazifa", "wazaif",
+        "dua", "duayein", "islamic", "deen", "hadees", "hadis", "sunnah", "quran", "surah",
+        "namaz", "roza", "hajj", "zakat", "molana", "maulana", "mufti", "peer", "sayyed",
+        "qadri", "chishti", "razvi", "noori", "azhari", "rohani", "fazeelat", "barkat",
+        "rizq", "rozi", "istighfar", "tahajjud", "amal", "dolat", "garibi", "karobar"
     )
 
     /**

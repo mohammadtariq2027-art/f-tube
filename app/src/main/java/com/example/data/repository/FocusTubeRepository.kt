@@ -261,6 +261,11 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
             val existing = dao.getVideosForPlaylistSnapshot(playlistId)
             val existingIds = existing.map { it.videoId }.toSet()
 
+            // Update playlist title if valid title fetched
+            if (result.title.isNotBlank() && !result.title.equals("undefined", ignoreCase = true) && !result.title.equals("Playlist", ignoreCase = true)) {
+                dao.updatePlaylistTitle(playlistId, result.title)
+            }
+
             // Update real duration for existing videos
             for (v in result.videos) {
                 if (v.duration.isNotBlank() && v.videoId in existingIds) {
@@ -560,6 +565,9 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
             Result.failure(e)
         }
     }
+
+    suspend fun getAllGroupsSnapshot(): List<SubscriptionGroupEntity> = dao.getAllGroupsSnapshot()
+    suspend fun getAllPlaylistsSnapshot(): List<PlaylistEntity> = dao.getAllPlaylistsSnapshot()
 
     companion object {
         fun extractVideoId(input: String): String? {

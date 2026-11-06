@@ -50,6 +50,7 @@ import com.example.data.repository.FocusTubeRepository
 import com.example.ui.add.AddPlaylistDialog
 import com.example.ui.add.AddVideoGenericDialog
 import com.example.ui.backup.BackupRestoreDialog
+import com.example.ui.components.GoogleAccountDialog
 import com.example.ui.groups.GroupsScreen
 import com.example.ui.home.HomeScreen
 import com.example.ui.player.FocusPlayerView
@@ -80,6 +81,7 @@ fun MainApp(
     var viewingPlaylistDetail by remember { mutableStateOf<PlaylistEntity?>(null) }
     var showAddPlaylistDialog by remember { mutableStateOf(false) }
     var showBackupDialog by remember { mutableStateOf(false) }
+    var showGoogleAccountDialog by remember { mutableStateOf(false) }
     var addVideoDestination by remember { mutableStateOf<VideoAddDestination?>(null) }
     var videoToSaveToPlaylist by remember { mutableStateOf<com.example.data.local.entity.VideoEntity?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -100,6 +102,7 @@ fun MainApp(
     val channelSearchHistory by viewModel.getSearchHistory("CHANNEL").collectAsState(initial = emptyList())
     val playlistSearchHistory by viewModel.getSearchHistory("PLAYLIST").collectAsState(initial = emptyList())
     val lastPlayedVideoId by viewModel.lastPlayedVideoId.collectAsState()
+    val googleUser by viewModel.googleUserProfile.collectAsState()
 
     // Handle shared YouTube links directly from Android Share Sheet
     LaunchedEffect(initialSharedUrl) {
@@ -218,7 +221,9 @@ fun MainApp(
                             },
                             isSyncing = isSyncing,
                             onSyncGroup = { viewModel.syncGroup(it) },
-                            onSyncPlaylist = { viewModel.syncPlaylist(it) }
+                            onSyncPlaylist = { viewModel.syncPlaylist(it) },
+                            userProfile = googleUser,
+                            onOpenGoogleAccount = { showGoogleAccountDialog = true }
                         )
                     }
 
@@ -261,7 +266,9 @@ fun MainApp(
                             onDeletePlaylist = { viewModel.deletePlaylist(it) },
                             onOpenCreatePlaylistDialog = { showAddPlaylistDialog = true },
                             onOpenBackupDialog = { showBackupDialog = true },
-                            onSyncPlaylist = { viewModel.syncPlaylist(it) }
+                            onSyncPlaylist = { viewModel.syncPlaylist(it) },
+                            userProfile = googleUser,
+                            onOpenGoogleAccount = { showGoogleAccountDialog = true }
                         )
                     }
                 }
@@ -323,7 +330,10 @@ fun MainApp(
                 onSyncPlaylist = { viewModel.syncPlaylist(it) },
                 onMarkVideoSynced = { vId, synced -> viewModel.markVideoSynced(vId, synced) },
                 onMarkAllSynced = { plId -> viewModel.markAllVideosInPlaylistSynced(plId) },
-                onSyncBatchToYouTube = { videoIds -> viewModel.syncBatchToYouTube(context, playlist.playlistId, videoIds) }
+                onSyncBatchToYouTube = { videoIds -> viewModel.syncBatchToYouTube(context, playlist.playlistId, videoIds) },
+                userProfile = googleUser,
+                onOpenGoogleAccount = { showGoogleAccountDialog = true },
+                onSyncAllNowWithAccount = { viewModel.syncAllNowWithAccount() }
             )
         }
 
@@ -373,6 +383,30 @@ fun MainApp(
             onExportData = { viewModel.exportDataJson() },
             onImportData = { json, replace, callback ->
                 viewModel.importDataJson(json, replace, callback)
+            }
+        )
+    }
+
+    // Dialog: Google Account & Nightly Sync / Backup
+    if (showGoogleAccountDialog) {
+        GoogleAccountDialog(
+            userProfile = googleUser,
+            isSyncing = isSyncing,
+            onDismiss = { showGoogleAccountDialog = false },
+            onSignInWithGoogle = {
+                viewModel.signInWithGoogle(context)
+            },
+            onManualConnect = { email, name ->
+                viewModel.saveManualGoogleLogin(email, name)
+            },
+            onSignOut = {
+                viewModel.signOutGoogle()
+            },
+            onToggleNightlySync = { enabled ->
+                viewModel.toggleNightlySync(enabled)
+            },
+            onSyncAllNow = {
+                viewModel.syncAllNowWithAccount()
             }
         )
     }

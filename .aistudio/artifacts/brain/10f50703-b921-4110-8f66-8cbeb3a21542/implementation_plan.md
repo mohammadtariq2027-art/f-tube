@@ -1,60 +1,53 @@
-# FocusTube: Complete Resolution for Educational Videos Being Blocked
+# Implementation Plan: Android OS-Level Google Sign-In & Daily Auto-Backup
 
-This update completely eliminates false-positive blocks on all educational, academic, coaching, school, college, and study videos.
-
----
-
-## 1. Root Cause Analysis: Why Educational Videos Were Blocked
-
-1. **Colliding Single Words in the Blocked List**:
-   - The blocked keywords list contained single artist names and musical terms that directly collided with core NCERT / CBSE / competitive exam topics:
-     - `"king"` (intended for the rapper) was blocking **"Animal Kingdom"** (Biology Ch. 4), **"Plant Kingdom"** (Biology Ch. 3), **"Kingdom of Fools"** (Class 9 English), and all history lessons on **"King Ashoka"** or **"King George"**!
-     - `"beats"` was blocking Physics wave mechanics (**"Superposition of Waves and Beats Phenomenon"**) and biology/physiology (**"Heart Beats"**)!
-     - `"acoustic"` was blocking Physics lectures on **"Acoustic Waves"** and sound physics!
-     - `"singer"` was blocking biology lessons on the **"Singer and Nicolson Fluid Mosaic Model"**!
-     - `"natak"` was substring-matching **"Karnataka"** geography and history lessons!
-     - `"full episode"` was blocking educational documentaries from Discovery, Nat Geo, and Bharat Ek Khoj!
-2. **Aggressive Auto-Purge on Playlist Open**:
-   - When opening a playlist, a `LaunchedEffect` in `PlaylistDetailSheet.kt` was calling `onDeleteVideo(v.id)` whenever `isDistractionVideo` flagged a video, deleting legitimate study videos from the database.
-3. **Empty Playlist Auto-Deletion on Startup**:
-   - In `FocusTubeRepository.purgeAllDistractions()`, any playlist with 0 videos was being deleted, wiping out custom playlists created by the user before they could add videos.
-4. **Player Locked with No Override**:
-   - When `DistractionBlockedCurtain` triggered, the video was immediately deleted from storage without giving the user any chance to allow an educational video.
+## 1. How Official YouTube App Handles Login Internally
+- **Token System in Official YouTube**: Yes, the official YouTube app **100% runs on the same token architecture** (OAuth 2.0 Access & Refresh Tokens). For security reasons, no Google app ever sends your actual password across the internet after the initial sign-in.
+- **Why You Never Notice It in Official YouTube**:
+  - In Android OS, there is a built-in core service called **Google Play Services (`AccountManager`)**.
+  - When you set up your Android phone, your Google Account is stored securely at the OS level (`Settings -> Accounts`).
+  - When the official YouTube app opens, it requests a short-lived Access Token (typically 1 hour) from `AccountManager`.
+  - When the token expires, Android OS silently and instantly generates a new token in milliseconds without showing any UI or asking the user for anything.
 
 ---
 
-## 2. Implemented Fixes & Upgrades
-
-### A. Cleaned Up Blocked Keywords (Zero Academic Collisions)
-- Replaced all bare words with explicit compound terms:
-  - `"king"` -> removed (replaced with specific songs like `"tu aake dekhle"`)
-  - `"beats"` -> `"lofi beats"`, `"bass boosted beats"`, `"type beat"`
-  - `"acoustic"` -> removed
-  - `"singer"` -> `"playback singer"`
-  - `"natak"` -> `"drama serial"`, `"natak serial"`
-  - `"full episode"` -> `"serial full episode"`, `"daily soap serial"`
-  - Bare `"song"` / `"songs"` -> explicit formats only (`"video song"`, `"audio song"`, `"official music video"`, `"full song"`, `"punjabi song"`, `"bhojpuri song"`, `"bollywood song"`, `"item song"`, etc.)
-
-### B. Bulletproof Educational & Work Protection
-- Any video from educational channels or with educational/study/academic keywords is **100% PROTECTED AND ALLOWED**.
-- It is only blocked if it is an unambiguous, explicit song release from a record label (such as T-Series, Speed Records, State Studio, ONIMA).
-
-### C. Added "Allow & Play" Safety Option in Player Curtain
-- In `FocusPlayerView.kt`:
-  - Removed automatic silent deletion of videos on `LaunchedEffect`.
-  - In `DistractionBlockedCurtain`, added a prominent button:
-    **"📖 Allow & Play (यह पढ़ाई का वीडियो है)"**
-  - If any video is ever questioned, tapping this button lifts the curtain immediately, does not delete the video, and plays the video smoothly.
-  - Also provided a **"🚫 Block & Delete / हटा दें"** button if the user confirms they want to remove it.
-
-### D. Eliminated Destructive Auto-Deletion of Playlists & Videos
-- In `FocusTubeRepository.purgeAllDistractions()`: Playlists are never deleted.
-- In `PlaylistDetailSheet.kt`: Removed the automatic `LaunchedEffect` deletion loop.
+## 2. How FocusTube Will Replicate the Official YouTube Experience
+FocusTube will use the exact same **Android OS Google Play Services Integration**:
+1. **Device Account Picker (Zero Password Typing)**:
+   - When you tap "Sign in with Google", Android's native system dialog displays the Google account(s) already logged into your phone.
+   - You simply tap your account once.
+2. **Permanent System Binding via Google Play Services**:
+   - The app connects to Android's `GoogleSignInClient` / `CredentialManager` with `offlineAccess = true`.
+   - Android OS grants the app an authorization refresh capability linked directly to the device's Google Play Services account.
+3. **Silent Background Token Refresh (`silentSignIn()`)**:
+   - Just like the official YouTube app, whenever FocusTube needs to sync a playlist or add a video, it asks Google Play Services in the background (`silentSignIn()`).
+   - Android OS immediately provides a fresh token behind the scenes.
+   - **Result**: You sign in **only once**. The app will **never ask you to log in again** unless you manually tap "Logout", clear app storage, or factory reset the phone.
 
 ---
 
-## 3. Verification & Test Results
-- `compile_applet`: **Build succeeded**.
-- `gradle :app:testDebugUnitTest`: **BUILD SUCCESSFUL in 17s** with 100% passing tests:
-  - Verified allowed: "Animal Kingdom Class 11 Biology", "King Ashoka in History", "Acoustic Waves in Physics", "Superposition of Waves and Beats", "Singer and Nicolson Model", "Class 10 Trigonometry Full HD Video Lecture", "Drishti IAS Official Video".
-  - Verified blocked: "Bhain Nanki | Official Video", "Bom Diggy Diggy 8K Video", "Savanna song", "Arijit Singh Official Video Song".
+## 3. Official YouTube Playlist Sync (Background Direct Insert)
+1. **Direct API Integration**:
+   - Uses YouTube Data API v3 (`playlistItems.insert`) with the silent token.
+   - Adding a video in FocusTube automatically and instantly reflects inside your official YouTube app playlist with **0 extra taps**.
+2. **Duplicate Prevention**:
+   - Before syncing, the app checks whether the video is already present in the playlist to prevent any duplicate copies.
+
+---
+
+## 4. Daily Automatic Backup & Zero-Loss Restore
+1. **Daily Auto-Backup (`WorkManager`)**:
+   - Runs automatically in the background every evening.
+   - Backs up all custom groups, added channels, playlists, and notes into:
+     - `Documents/FocusTube/focustube_backup.json` (persists on device even if app is uninstalled).
+     - Android OS Cloud Backup (Google Drive App Data).
+2. **Instant Auto-Restore on App Reinstallation**:
+   - If the app is uninstalled and reinstalled, on the first launch it detects the existing backup file and automatically restores all groups and channels in 1 click.
+
+---
+
+## 5. Verification & Testing Plan
+- Test single-tap account selection using native Android Google Play Services dialog.
+- Verify `silentSignIn()` succeeds on app restart without showing any login UI.
+- Verify that adding a video to a playlist successfully inserts it into the user's real YouTube playlist.
+- Test backup generation and automatic restore after simulating a fresh app install.
+- Run `compile_applet` and unit tests to ensure stability and zero crashes.

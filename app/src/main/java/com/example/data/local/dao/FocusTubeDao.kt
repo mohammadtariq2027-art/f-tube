@@ -80,6 +80,9 @@ interface FocusTubeDao {
     @Query("DELETE FROM playlists WHERE playlistId = :playlistId")
     suspend fun deletePlaylist(playlistId: String)
 
+    @Query("UPDATE playlists SET title = :title WHERE playlistId = :playlistId")
+    suspend fun updatePlaylistTitle(playlistId: String, title: String)
+
     @Query("UPDATE playlists SET isPinnedHome = 0")
     suspend fun clearPinnedPlaylists()
 
@@ -188,7 +191,7 @@ interface FocusTubeDao {
     @Query("UPDATE videos SET orderIndex = orderIndex + :shift WHERE playlistId = :playlistId")
     suspend fun shiftPlaylistVideosOrderIndex(playlistId: String, shift: Int)
 
-    @Query("SELECT * FROM videos WHERE title LIKE '%' || :query || '%' OR channelName LIKE '%' || :query || '%' OR notes LIKE '%' || :query || '%' ORDER BY id DESC")
+    @Query("SELECT * FROM videos WHERE title LIKE '%' || :query || '%' OR channelName LIKE '%' || :query || '%' OR notes LIKE '%' || :query || '%' ORDER BY id DESC LIMIT 200")
     fun searchAllVideos(query: String): Flow<List<VideoEntity>>
 
     @Query("""
@@ -196,12 +199,16 @@ interface FocusTubeDao {
         ORDER BY 
             CASE WHEN publishedTimestamp > 0 THEN publishedTimestamp ELSE addedAt END DESC, 
             id DESC
+        LIMIT 500
     """)
     fun getAllVideosFlow(): Flow<List<VideoEntity>>
 
     // === Preferences ===
     @Query("SELECT value FROM app_preferences WHERE `key` = :key LIMIT 1")
     fun getPreference(key: String): Flow<String?>
+
+    @Query("SELECT value FROM app_preferences WHERE `key` = :key LIMIT 1")
+    suspend fun getPreferenceSnapshot(key: String): String?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setPreference(pref: AppPreferenceEntity)

@@ -25,26 +25,55 @@ import kotlinx.coroutines.launch
 class FocusTubeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: FocusTubeRepository
+    val accountManager: com.example.util.GoogleAccountManager
+    val googleUserProfile: StateFlow<com.example.util.GoogleUserProfile>
 
     init {
         val db = FocusTubeDatabase.getDatabase(application, viewModelScope)
         repository = FocusTubeRepository(db.dao())
+        accountManager = com.example.util.GoogleAccountManager(db.dao())
+        googleUserProfile = accountManager.userProfile
 
-        // Real-time instant purge of any existing duplicate copies & distractions from database
+        // 🔑 Restore permanent Google session (auto-login on startup) & run nightly sync if due
         viewModelScope.launch {
-            val dupesPurged = repository.purgeDuplicateVideos()
-            if (dupesPurged > 0) {
-                android.util.Log.d("FocusTubeViewModel", "Auto-cleaned $dupesPurged duplicate video(s) on startup")
-            }
-            val purged = repository.purgeAllDistractions()
-            if (purged > 0) {
-                android.util.Log.d("FocusTubeViewModel", "Purged $purged distraction video(s) on startup")
+            try {
+                accountManager.restoreSession()
+                if (accountManager.userProfile.value.isNightlySyncEnabled && com.example.util.NightlySyncScheduler.isNightTimeOrDue()) {
+                    com.example.util.NightlySyncScheduler.performNightlySync(application, repository, accountManager, viewModelScope) {
+                        _statusMessage.value = it
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("FocusTubeViewModel", "Session restore/nightly sync check skipped: ${e.message}")
             }
         }
 
-        // PocketTube / YouTube style Automatic Sync:
-        // Automatically checks and fetches new videos for channels and playlists
-        // without requiring the user to press the sync button manually.
+        // Safely clean up duplicate video entries on startup in background
+        viewModelScope.launch {
+            try {
+                val dupesPurged = repository.purgeDuplicateVideos()
+                if (dupesPurged > 0) {
+                    android.util.Log.d("FocusTubeViewModel", "Auto-cleaned $dupesPurged duplicate video(s) on startup")
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("FocusTubeViewModel", "Startup duplicate check skipped: ${e.message}")
+            }
+        }
+
+        // 🔄 Automatic Backup Check on Startup:
+        // If app is reinstalled or opened with an empty database, auto-restore from detected backup!
+        viewModelScope.launch {
+            try {
+                val restored = com.example.util.AutoBackupHelper.checkAndAutoRestoreIfEmpty(application, repository)
+                if (restored) {
+                    _statusMessage.value = "🔄 पिछला बैकअप मिला! सभी ग्रुप्स, चैनल्स और प्लेलिस्ट रीस्टोर कर दिए गए हैं।"
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("FocusTubeViewModel", "Auto-restore check skipped: ${e.message}")
+            }
+        }
+
+        // PocketTube / YouTube style Automatic Sync (runs smoothly in background)
         startAutomaticSyncLoop()
     }
 
@@ -125,6 +154,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                 repository.setPinnedGroup(newId)
             }
             _statusMessage.value = "Created group '${name.trim()}'"
+            com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
         }
     }
 
@@ -132,6 +162,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             repository.deleteGroup(groupId)
             _statusMessage.value = "Group removed"
+            com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
         }
     }
 
@@ -145,6 +176,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                 repository.saveSearchQuery(rawInput, "CHANNEL")
                 val msg = repository.fetchAndAddChannelToGroup(rawInput, groupId)
                 _statusMessage.value = msg
+                com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
             } catch (e: IllegalArgumentException) {
                 _statusMessage.value = "🛡️ Focus Shield: ${e.message}"
             } catch (e: Exception) {
@@ -159,6 +191,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             repository.deleteChannel(channelId)
             _statusMessage.value = "Channel removed"
+            com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
         }
     }
 
@@ -166,6 +199,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             repository.moveChannelToGroup(channelId, newGroupId)
             _statusMessage.value = "Channel moved to new group"
+            com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
         }
     }
 
@@ -179,6 +213,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                 repository.saveSearchQuery(rawInput, "PLAYLIST")
                 val msg = repository.fetchAndAddPlaylist(rawInput, customTitle)
                 _statusMessage.value = msg
+                com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
             } catch (e: Exception) {
                 _statusMessage.value = "Failed to fetch playlist: ${e.localizedMessage ?: "Unknown error"}"
             } finally {
@@ -191,6 +226,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             repository.deletePlaylist(playlistId)
             _statusMessage.value = "Playlist removed"
+            com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
         }
     }
 
@@ -249,8 +285,8 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
      */
     private fun startAutomaticSyncLoop() {
         viewModelScope.launch {
-            // Initial auto-sync shortly after launch to populate any new uploads
-            delay(3000)
+            // Initial auto-sync 30s after launch so app startup is instant and non-blocking
+            delay(30000)
             autoSyncAllActiveContent()
 
             // Periodic background sync loop every 5 minutes
@@ -569,6 +605,60 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
             }.onFailure { err ->
                 _statusMessage.value = "Import failed: ${err.localizedMessage ?: "Invalid file"}"
                 onComplete(false, err.localizedMessage ?: "Import failed")
+            }
+        }
+    }
+
+    // === Google Account & Nightly Sync Management ===
+
+    fun signInWithGoogle(context: android.content.Context) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val result = accountManager.signInWithCredentialManager(context)
+                result.fold(
+                    onSuccess = { profile ->
+                        _statusMessage.value = "✓ Google अकाउंट से कनेक्टेड: ${profile.displayName} (${profile.email})"
+                        com.example.util.NightlySyncScheduler.performNightlySync(getApplication(), repository, accountManager, viewModelScope)
+                    },
+                    onFailure = { err ->
+                        _statusMessage.value = "Google साइन-इन: ${err.localizedMessage ?: "रद्द किया गया"}"
+                    }
+                )
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun saveManualGoogleLogin(email: String, name: String) {
+        viewModelScope.launch {
+            accountManager.saveUserProfile(email, name)
+            _statusMessage.value = "✓ स्थायी Google अकाउंट कनेक्ट हो गया: $email"
+            com.example.util.NightlySyncScheduler.performNightlySync(getApplication(), repository, accountManager, viewModelScope)
+        }
+    }
+
+    fun signOutGoogle() {
+        viewModelScope.launch {
+            accountManager.signOut()
+            _statusMessage.value = "Google अकाउंट से लॉगआउट कर दिया गया"
+        }
+    }
+
+    fun toggleNightlySync(enabled: Boolean) {
+        viewModelScope.launch {
+            accountManager.setNightlySync(enabled)
+            _statusMessage.value = if (enabled) "🌙 रोज़ रात को ऑटो-सिंक सक्रिय है" else "रात का ऑटो-सिंक बंद किया गया"
+        }
+    }
+
+    fun syncAllNowWithAccount() {
+        viewModelScope.launch {
+            _isSyncing.value = true
+            com.example.util.NightlySyncScheduler.performNightlySync(getApplication(), repository, accountManager, viewModelScope) {
+                _statusMessage.value = it
+                _isSyncing.value = false
             }
         }
     }

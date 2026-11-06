@@ -23,9 +23,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
@@ -96,7 +98,9 @@ fun HomeScreen(
     onSyncGroup: (Long) -> Unit = {},
     onSyncPlaylist: (String) -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
-    lastPlayedVideoId: String? = null
+    lastPlayedVideoId: String? = null,
+    userProfile: com.example.util.GoogleUserProfile = com.example.util.GoogleUserProfile(),
+    onOpenGoogleAccount: () -> Unit = {}
 ) {
     var showSwitchSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -114,13 +118,8 @@ fun HomeScreen(
         }
     }
 
-    // 🛡️ Focus Shield Real-Time Filter: Never display music, movies, or distractions on screen
-    val safeFeedVideos = remember(videos) {
-        videos.filterNot { com.example.util.FocusShield.isDistractionVideo(it.title, it.channelName) }
-    }
-    val safeGlobalVideos = remember(allSavedVideos) {
-        allSavedVideos.filterNot { com.example.util.FocusShield.isDistractionVideo(it.title, it.channelName) }
-    }
+    val safeFeedVideos = videos
+    val safeGlobalVideos = allSavedVideos
 
     val filteredFeedVideos = remember(safeFeedVideos, searchQuery) {
         if (searchQuery.isBlank()) safeFeedVideos
@@ -264,7 +263,7 @@ fun HomeScreen(
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         modifier = Modifier
-                            .padding(end = 8.dp)
+                            .padding(end = 4.dp)
                             .testTag("switch_home_target_button")
                     ) {
                         Icon(
@@ -278,6 +277,27 @@ fun HomeScreen(
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
                         )
+                    }
+                    IconButton(
+                        onClick = onOpenGoogleAccount,
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .testTag("home_google_account_button")
+                    ) {
+                        Box(contentAlignment = Alignment.TopEnd) {
+                            Icon(
+                                imageVector = if (userProfile.isSignedIn) Icons.Default.AccountCircle else Icons.Default.CloudSync,
+                                contentDescription = "Google Account & Nightly Sync",
+                                tint = if (userProfile.isSignedIn) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (userProfile.isSignedIn) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .background(Color(0xFF4CAF50), shape = CircleShape)
+                                )
+                            }
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -352,7 +372,7 @@ fun HomeScreen(
                     contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 88.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(displayedVideos, key = { it.id }) { video ->
+                    items(displayedVideos, key = { "${it.id}_${it.videoId}" }) { video ->
                         val cleanDuration = remember(video.duration, video.videoId) {
                             com.example.util.DurationUtils.formatCleanDuration(video.duration, video.videoId)
                         }

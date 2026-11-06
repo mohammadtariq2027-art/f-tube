@@ -16,11 +16,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistPlay
@@ -28,6 +32,7 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
+import com.example.util.GoogleUserProfile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -69,7 +74,9 @@ fun PlaylistsScreen(
     onDeletePlaylist: (String) -> Unit,
     onOpenCreatePlaylistDialog: () -> Unit,
     onOpenBackupDialog: () -> Unit = {},
-    onSyncPlaylist: (String) -> Unit = {}
+    onSyncPlaylist: (String) -> Unit = {},
+    userProfile: GoogleUserProfile = GoogleUserProfile(),
+    onOpenGoogleAccount: () -> Unit = {}
 ) {
     var playlistToDelete by remember { mutableStateOf<PlaylistEntity?>(null) }
     var searchQuery by remember { mutableStateOf("") }
@@ -157,6 +164,27 @@ fun PlaylistsScreen(
                             contentDescription = "Backup & Restore Data"
                         )
                     }
+                    IconButton(
+                        onClick = onOpenGoogleAccount,
+                        modifier = Modifier
+                            .padding(end = 4.dp)
+                            .testTag("google_account_button_playlists")
+                    ) {
+                        Box(contentAlignment = Alignment.TopEnd) {
+                            Icon(
+                                imageVector = if (userProfile.isSignedIn) Icons.Default.AccountCircle else Icons.Default.CloudSync,
+                                contentDescription = "Google Account & Nightly Sync",
+                                tint = if (userProfile.isSignedIn) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (userProfile.isSignedIn) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(7.dp)
+                                        .background(Color(0xFF4CAF50), shape = CircleShape)
+                                )
+                            }
+                        }
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -219,6 +247,67 @@ fun PlaylistsScreen(
                     contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 88.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    item(key = "google_account_status_banner") {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenGoogleAccount() }
+                                .testTag("playlists_google_account_banner"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (userProfile.isSignedIn) Color(0xFF1B5E20).copy(alpha = 0.12f)
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = if (userProfile.isSignedIn) Icons.Default.CheckCircle else Icons.Default.CloudSync,
+                                        contentDescription = null,
+                                        tint = if (userProfile.isSignedIn) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = if (userProfile.isSignedIn) "Google: ${userProfile.email}" else "Google अकाउंट लॉगिन (1-Time)",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = if (userProfile.isSignedIn) "स्थायी कनेक्टेड • 🌙 रोज़ रात ऑटो-सिंक सक्रिय" else "ऑटो-सिंक व ऑटो-बैकअप सेट करने के लिए टैप करें",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (userProfile.isSignedIn) Color(0xFF2E7D32).copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                ) {
+                                    Text(
+                                        text = if (userProfile.isSignedIn) "मैनेज ⚙️" else "लॉगिन ↗",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (userProfile.isSignedIn) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     items(filteredPlaylists, key = { it.playlistId }) { playlist ->
                         val isPinned = pinnedPlaylist?.playlistId == playlist.playlistId
 

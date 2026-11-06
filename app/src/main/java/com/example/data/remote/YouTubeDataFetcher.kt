@@ -757,45 +757,51 @@ object YouTubeDataFetcher {
                         }
                     }
 
-                    // 3. Check continuation tokens for video list pagination
-                    // A) continuationItemRenderer
-                    if (obj.has("continuationItemRenderer")) {
-                        val cir = obj.optJSONObject("continuationItemRenderer")
-                        val token = cir?.optJSONObject("continuationEndpoint")
-                            ?.optJSONObject("continuationCommand")
-                            ?.optString("token")
-                        if (!token.isNullOrBlank() && token.length > 20) {
-                            nextToken = token
+                    // 3. Check continuation tokens for video list pagination (keep first valid token from item list)
+                    if (nextToken == null) {
+                        // A) continuationItemRenderer
+                        if (obj.has("continuationItemRenderer")) {
+                            val cir = obj.optJSONObject("continuationItemRenderer")
+                            val token = cir?.optJSONObject("continuationEndpoint")
+                                ?.optJSONObject("continuationCommand")
+                                ?.optString("token")
+                            if (!token.isNullOrBlank() && token.length > 20) {
+                                nextToken = token
+                            }
                         }
-                    }
 
-                    // B) continuationItemViewModel (modern playlist pagination)
-                    if (obj.has("continuationItemViewModel")) {
-                        val civm = obj.optJSONObject("continuationItemViewModel")
-                        val cmd = civm?.optJSONObject("continuationCommand")
-                        val token = cmd?.optJSONObject("innertubeCommand")?.optString("token")
-                            ?: cmd?.optString("token")
-                        if (!token.isNullOrBlank() && token.length > 20) {
-                            nextToken = token
+                        // B) continuationItemViewModel (modern playlist pagination)
+                        if (obj.has("continuationItemViewModel")) {
+                            val civm = obj.optJSONObject("continuationItemViewModel")
+                            val cmd = civm?.optJSONObject("continuationCommand")
+                            val inCmd = cmd?.optJSONObject("innertubeCommand")
+                            val token = inCmd?.optJSONObject("continuationCommand")?.optString("token")
+                                ?: inCmd?.optString("token")
+                                ?: cmd?.optString("token")
+                            if (!token.isNullOrBlank() && token.length > 20) {
+                                nextToken = token
+                            }
                         }
-                    }
 
-                    // C) continuationCommand direct
-                    if (obj.has("continuationCommand")) {
-                        val cmd = obj.optJSONObject("continuationCommand")
-                        val token = cmd?.optString("token")
-                            ?: cmd?.optJSONObject("innertubeCommand")?.optString("token")
-                        if (!token.isNullOrBlank() && token.length > 20) {
-                            nextToken = token
+                        // C) continuationCommand direct
+                        if (obj.has("continuationCommand")) {
+                            val cmd = obj.optJSONObject("continuationCommand")
+                            val inCmd = cmd?.optJSONObject("innertubeCommand")
+                            val token = inCmd?.optJSONObject("continuationCommand")?.optString("token")
+                                ?: inCmd?.optString("token")
+                                ?: cmd?.optString("token")
+                            if (!token.isNullOrBlank() && token.length > 20) {
+                                nextToken = token
+                            }
                         }
-                    }
 
-                    // D) continuationEndpoint direct
-                    if (obj.has("continuationEndpoint")) {
-                        val ep = obj.optJSONObject("continuationEndpoint")
-                        val token = ep?.optJSONObject("continuationCommand")?.optString("token")
-                        if (!token.isNullOrBlank() && token.length > 20) {
-                            nextToken = token
+                        // D) continuationEndpoint direct
+                        if (obj.has("continuationEndpoint")) {
+                            val ep = obj.optJSONObject("continuationEndpoint")
+                            val token = ep?.optJSONObject("continuationCommand")?.optString("token")
+                            if (!token.isNullOrBlank() && token.length > 20) {
+                                nextToken = token
+                            }
                         }
                     }
 

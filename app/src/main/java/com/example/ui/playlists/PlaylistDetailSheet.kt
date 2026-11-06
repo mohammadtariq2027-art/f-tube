@@ -23,10 +23,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PlayArrow
@@ -95,17 +97,18 @@ fun PlaylistDetailScreen(
     onMarkAllSynced: (String) -> Unit = {},
     onSyncBatchToYouTube: (List<String>) -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
-    lastPlayedVideoId: String? = null
+    lastPlayedVideoId: String? = null,
+    userProfile: com.example.util.GoogleUserProfile = com.example.util.GoogleUserProfile(),
+    onOpenGoogleAccount: () -> Unit = {},
+    onSyncAllNowWithAccount: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     var showSyncAssistantDialog by remember { mutableStateOf(false) }
 
-    // 🛡️ Focus Shield Real-Time Filter: Filter out any distraction videos on the spot
-    val safeVideos = remember(videos) {
-        videos.filterNot { com.example.util.FocusShield.isDistractionVideo(it.title, it.channelName) }
-    }
+    // Display all videos stored in the playlist without secondary runtime filtering
+    val safeVideos = videos
     val unsyncedVideos = remember(safeVideos) { safeVideos.filter { !it.isSyncedToYouTube } }
 
     // Fallback: If scroll state was reset to index 0 after watching a video in playlist,
@@ -257,90 +260,169 @@ fun PlaylistDetailScreen(
                 // YouTube App Sync Status Banner
                 if (unsyncedVideos.isNotEmpty() && !isSearchActive) {
                     item {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                            )
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                        if (userProfile.isSignedIn) {
+                            // === Connected Google Account & Nightly Sync Card ===
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
                                     Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = Color(0xFF4CAF50),
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Google Account: ${userProfile.email}",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFF1B5E20).copy(alpha = 0.2f)
+                                        ) {
+                                            Text(
+                                                text = "स्थायी लॉगिन",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF2E7D32),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "🌙 रोज़ रात को ऑटो-सिंक सक्रिय है। आपकी प्लेलिस्ट हमेशा सुरक्षित रहेगी।",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            onClick = onSyncAllNowWithAccount,
+                                            enabled = !isSyncing,
+                                            modifier = Modifier.weight(1.3f),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(imageVector = Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("🔄 अभी सिंक करें", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        OutlinedButton(
+                                            onClick = onOpenGoogleAccount,
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Text("अकाउंट सेटिंग्स", fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // === Not Signed In: Google Login Banner ===
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
-                                            imageVector = Icons.Default.Sync,
+                                            imageVector = Icons.Default.AccountCircle,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(20.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "${unsyncedVideos.size} video(s) pending YouTube sync",
+                                            text = "Google अकाउंट लॉगिन (स्थायी ऑटो-सिंक)",
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
-
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "सिर्फ 1 बार लॉगिन करें — फिर रोज़ रात को अपने आप बैकअप व सिंक होगा। दोबारा लॉगिन की कभी ज़रूरत नहीं पड़ेगी।",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Button(
+                                        onClick = onOpenGoogleAccount,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp)
                                     ) {
-                                        Text(
-                                            text = "UNSYNCED",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
+                                        Icon(imageVector = Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Google अकाउंट से लॉगिन करें ↗", fontWeight = FontWeight.Bold)
                                     }
                                 }
+                            }
+                        }
 
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "1-2 क्लिक में सभी वीडियो YouTube ऐप में खोलें और '+' दबाकर अपनी मूल प्लेलिस्ट में तुरंत जोड़ें।",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                        if (unsyncedVideos.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                                 )
-
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "${unsyncedVideos.size} video(s) pending official sync",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        TextButton(onClick = { showSyncAssistantDialog = true }) {
+                                            Text("YouTube App Options ↗", fontSize = 11.sp)
+                                        }
+                                    }
                                     Button(
                                         onClick = {
                                             val idsToSync = unsyncedVideos.map { it.videoId }
                                             onSyncBatchToYouTube(idsToSync)
                                         },
                                         shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                                        modifier = Modifier.weight(1.3f)
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayArrow,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
-                                        )
+                                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("⚡ 1-Click Sync All ↗", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    }
-
-                                    OutlinedButton(
-                                        onClick = { showSyncAssistantDialog = true },
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text("Options ↗", fontSize = 12.sp)
+                                        Text("⚡ YouTube ऐप में 1-क्लिक में कतार खोलें ↗", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -419,7 +501,7 @@ fun PlaylistDetailScreen(
                         }
                     }
                 } else {
-                    items(filteredVideos, key = { it.id }) { video ->
+                    items(filteredVideos, key = { "${it.id}_${it.videoId}" }) { video ->
                         val cleanDuration = remember(video.duration, video.videoId) {
                             com.example.util.DurationUtils.formatCleanDuration(video.duration, video.videoId)
                         }
