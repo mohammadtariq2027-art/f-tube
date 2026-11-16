@@ -26,18 +26,20 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
-import com.example.util.GoogleUserProfile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,30 +63,78 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.PlaylistEntity
+import com.example.data.local.entity.VideoEntity
+import com.example.util.GoogleUserProfile
+import com.example.util.YouTubeSyncHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaylistsScreen(
     playlists: List<PlaylistEntity>,
     pinnedPlaylist: PlaylistEntity?,
+    allSavedVideos: List<VideoEntity> = emptyList(),
     onSelectPinnedPlaylist: (String) -> Unit,
     onOpenPlaylistVideos: (PlaylistEntity) -> Unit,
+    onSelectVideoAtTimestamp: (VideoEntity, Int?) -> Unit = { _, _ -> },
     onOpenAddVideoToPlaylist: (String) -> Unit,
     onDeletePlaylist: (String) -> Unit,
     onOpenCreatePlaylistDialog: () -> Unit,
     onOpenBackupDialog: () -> Unit = {},
     onSyncPlaylist: (String) -> Unit = {},
+    isSyncing: Boolean = false,
+    onSyncYouTubeAccount: () -> Unit = {},
     userProfile: GoogleUserProfile = GoogleUserProfile(),
-    onOpenGoogleAccount: () -> Unit = {}
+    onOpenGoogleAccount: () -> Unit = {},
+    groupsCount: Int = 0,
+    onOpenReminderScreen: (() -> Unit)? = null,
+    onOpenDashboardTab: (() -> Unit)? = null
 ) {
     var playlistToDelete by remember { mutableStateOf<PlaylistEntity?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
+    var sortAlphabetically by remember { mutableStateOf(true) } // Default A to Z as requested by user
 
-    val filteredPlaylists = remember(playlists, searchQuery) {
-        if (searchQuery.isBlank()) playlists
-        else playlists.filter { it.title.contains(searchQuery, ignoreCase = true) }
+    val playlistMapById = remember(playlists) {
+        playlists.associateBy { it.playlistId }
+    }
+
+    val orderedPlaylists = remember(playlists, sortAlphabetically) {
+        if (sortAlphabetically) {
+            playlists.sortedWith(
+                compareByDescending<PlaylistEntity> { it.isPinnedHome }
+                    .thenBy { it.title.lowercase() }
+            )
+        } else {
+            playlists
+        }
+    }
+
+    val filteredPlaylists = remember(orderedPlaylists, searchQuery) {
+        if (searchQuery.isBlank()) orderedPlaylists
+        else orderedPlaylists.filter {
+            com.example.util.AiSmartSearchEngine.scoreTextAgainstQuery(it.title, searchQuery) >= 0.28f
+        }
+    }
+
+    // AI Smart Search across both Videos and Notes across all playlists when searchQuery is non-blank
+    val aiSearchResultsMap = remember(allSavedVideos, searchQuery, playlistMapById) {
+        if (searchQuery.isBlank()) emptyMap()
+        else {
+            com.example.util.AiSmartSearchEngine
+                .searchVideosAndNotes(allSavedVideos.distinctBy { it.videoId }, searchQuery)
+                .associateBy { it.video.videoId }
+        }
+    }
+
+    val matchedVideosAndNotes = remember(aiSearchResultsMap, allSavedVideos, searchQuery) {
+        if (searchQuery.isBlank()) emptyList()
+        else aiSearchResultsMap.values.map { it.video }
+    }
+
+    val hasSession = remember(userProfile) {
+        userProfile.isYouTubeAutoSaveActive || YouTubeSyncHelper.hasYouTubeWebSession()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -99,7 +149,7 @@ fun PlaylistsScreen(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search playlists...") },
+                            placeholder = { Text("✨ AI Smart Search: रफ आईडिया, प्लेलिस्ट, वीडियो या सीन (6 min) खोजें...", fontSize = 11.sp) },
                             singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -116,17 +166,16 @@ fun PlaylistsScreen(
                     } else {
                         Column {
                             Text(
-                                text = "Playlists",
+                                text = "Playlists (A–Z)",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
-                            if (searchQuery.isNotBlank()) {
-                                Text(
-                                    text = "${filteredPlaylists.size} of ${playlists.size} playlists",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            Text(
+                                text = if (searchQuery.isNotBlank()) "${filteredPlaylists.size} of ${playlists.size} playlists"
+                                else "कुल ${playlists.size} प्लेलिस्ट (A to Z)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 },
@@ -191,78 +240,42 @@ fun PlaylistsScreen(
                 )
             )
 
-            if (playlists.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "No Playlists Added Yet",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+            // Persistent App Header Sync & Backup Health Indicator Bar
+            com.example.ui.components.AppHeaderSyncStatusBar(
+                userProfile = userProfile,
+                isSyncing = isSyncing,
+                allSavedVideos = allSavedVideos,
+                groupsCount = groupsCount,
+                playlistsCount = playlists.size,
+                onTriggerSyncAndBackupNow = onSyncYouTubeAccount,
+                onOpenGoogleAccountDialog = onOpenGoogleAccount,
+                onOpenBackupRestoreDialog = onOpenBackupDialog,
+                onOpenReminderScreen = onOpenReminderScreen,
+                onOpenDashboardTab = onOpenDashboardTab
+            )
+
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 88.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Banner to sync ALL playlists from YouTube account
+                item(key = "google_account_status_banner") {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("playlists_google_account_banner"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (userProfile.isSignedIn || hasSession) Color(0xFF1B5E20).copy(alpha = 0.12f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                         )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Paste any public or unlisted YouTube playlist URL to fetch its videos without distractions.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Button(onClick = onOpenCreatePlaylistDialog) {
-                            Text("+ Add YouTube Playlist")
-                        }
-                    }
-                }
-            } else if (filteredPlaylists.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "No Matching Playlists",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "No playlist matched '$searchQuery'.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Button(onClick = { searchQuery = "" }) {
-                            Text("Clear Search")
-                        }
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 88.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    item(key = "google_account_status_banner") {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpenGoogleAccount() }
-                                .testTag("playlists_google_account_banner"),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (userProfile.isSignedIn) Color(0xFF1B5E20).copy(alpha = 0.12f)
-                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                            )
-                        ) {
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    .clickable { onOpenGoogleAccount() },
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
@@ -271,22 +284,22 @@ fun PlaylistsScreen(
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Icon(
-                                        imageVector = if (userProfile.isSignedIn) Icons.Default.CheckCircle else Icons.Default.CloudSync,
+                                        imageVector = if (userProfile.isSignedIn || hasSession) Icons.Default.CheckCircle else Icons.Default.CloudSync,
                                         contentDescription = null,
-                                        tint = if (userProfile.isSignedIn) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
+                                        tint = if (userProfile.isSignedIn || hasSession) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column {
                                         Text(
-                                            text = if (userProfile.isSignedIn) "Google: ${userProfile.email}" else "Google अकाउंट लॉगिन (1-Time)",
+                                            text = if (userProfile.isSignedIn) "Google: ${userProfile.email}" else "YouTube प्लेलिस्ट व अकाउंट सिंक",
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = if (userProfile.isSignedIn) "स्थायी कनेक्टेड • 🌙 रोज़ रात ऑटो-सिंक सक्रिय" else "ऑटो-सिंक व ऑटो-बैकअप सेट करने के लिए टैप करें",
+                                            text = "आपकी कुल ${playlists.size} प्लेलिस्ट (A से Z) • रात को ऑटो-बैकअप सक्रिय",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -294,21 +307,271 @@ fun PlaylistsScreen(
                                 }
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = if (userProfile.isSignedIn) Color(0xFF2E7D32).copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                                 ) {
                                     Text(
-                                        text = if (userProfile.isSignedIn) "मैनेज ⚙️" else "लॉगिन ↗",
+                                        text = "अकाउंट ⚙️",
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (userProfile.isSignedIn) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary,
+                                        color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Button(
+                                onClick = {
+                                    if (hasSession || userProfile.isSignedIn) {
+                                        onSyncYouTubeAccount()
+                                    } else {
+                                        onOpenGoogleAccount()
+                                    }
+                                },
+                                enabled = !isSyncing,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("sync_all_youtube_playlists_button")
+                            ) {
+                                if (isSyncing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("YouTube से सारी प्लेलिस्ट (A–Z) आ रही हैं...", fontSize = 12.sp)
+                                } else {
+                                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "🔄 YouTube से मेरी सारी प्लेलिस्ट (A–Z) लाएं / रीफ्रेश करें",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
                         }
                     }
+                }
 
-                    items(filteredPlaylists, key = { it.playlistId }) { playlist ->
+                if (isSearchActive && searchQuery.isNotBlank()) {
+                    item(key = "playlists_unified_search_summary") {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "✨ AI Smart Search ('${searchQuery}'): ${filteredPlaylists.size} प्लेलिस्ट और ${matchedVideosAndNotes.size} मिलते-जुलते वीडियो/नोट्स मिले",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+
+                    if (matchedVideosAndNotes.isNotEmpty()) {
+                        item(key = "matched_videos_notes_header") {
+                            Text(
+                                text = "🎬 & 📝 AI खोज में मिले वीडियो और सीन नोट्स (${matchedVideosAndNotes.size}):",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        items(
+                            items = matchedVideosAndNotes,
+                            key = { "pl_search_vid_${it.id}_${it.videoId}" }
+                        ) { video ->
+                            val plTitle = video.playlistId?.let { playlistMapById[it]?.title } ?: "Saved Video"
+                            val aiMatch = aiSearchResultsMap[video.videoId]
+                            val parsedNotes = remember(video.notes) {
+                                com.example.ui.player.parseSceneNotes(video.notes)
+                            }
+                            val matchingNotes = remember(parsedNotes, searchQuery, aiMatch) {
+                                val aiNotes = aiMatch?.matchedSceneNotes.orEmpty()
+                                if (aiNotes.isNotEmpty()) aiNotes else parsedNotes.take(2)
+                            }
+
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSelectVideoAtTimestamp(video, null) },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    if (aiMatch != null) {
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFF4A148C).copy(alpha = 0.12f),
+                                            modifier = Modifier.padding(bottom = 6.dp)
+                                        ) {
+                                            Text(
+                                                text = "${aiMatch.matchReasonLabel} (${aiMatch.confidencePercent}% मैच)",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF6A1B9A),
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = video.title,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFF1B5E20).copy(alpha = 0.15f)
+                                        ) {
+                                            Text(
+                                                text = "📂 $plTitle",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF2E7D32),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    if (matchingNotes.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        val fallbackTs = remember(parsedNotes) {
+                                            parsedNotes.firstOrNull { it.timestampSeconds != null }?.timestampSeconds ?: 0
+                                        }
+                                        matchingNotes.forEach { entry ->
+                                            val hasTs = entry.timestampSeconds != null && entry.timestampLabel != null
+                                            val jumpSec = entry.timestampSeconds ?: fallbackTs
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = Color(0xFFFFE0B2),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 2.dp)
+                                                    .clickable {
+                                                        onSelectVideoAtTimestamp(video, jumpSec)
+                                                    }
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Edit,
+                                                        contentDescription = "Note Pencil Indicator",
+                                                        tint = Color(0xFFE65100),
+                                                        modifier = Modifier.size(11.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    if (hasTs) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(5.dp),
+                                                            color = Color(0xFFE65100)
+                                                        ) {
+                                                            Text(
+                                                                text = "▶ ${entry.timestampLabel}",
+                                                                fontSize = 10.sp,
+                                                                fontWeight = FontWeight.ExtraBold,
+                                                                color = Color.White,
+                                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                            )
+                                                        }
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                    }
+                                                    Text(
+                                                        text = entry.noteBody,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = Color(0xFFE65100),
+                                                        maxLines = 2,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (playlists.isNotEmpty()) {
+                    item(key = "playlist_sort_row") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = sortAlphabetically,
+                                    onClick = { sortAlphabetically = true },
+                                    label = { Text("🔤 A–Z (${playlists.size})") }
+                                )
+                                FilterChip(
+                                    selected = !sortAlphabetically,
+                                    onClick = { sortAlphabetically = false },
+                                    label = { Text("🕒 डिफ़ॉल्ट क्रम") }
+                                )
+                            }
+                            TextButton(onClick = { isSearchActive = true }) {
+                                Icon(imageVector = Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("वीडियो व नोट्स खोजें", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+
+                if (playlists.isEmpty()) {
+                    item(key = "empty_playlists") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "कोई प्लेलिस्ट नहीं जुड़ी है",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "ऊपर 'YouTube से मेरी सारी प्लेलिस्ट लाएं' बटन दबाएं या '+ Add YouTube Playlist' से लिंक पेस्ट करें।",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(onClick = onOpenCreatePlaylistDialog) {
+                                    Text("+ Add YouTube Playlist")
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    items(
+                        items = filteredPlaylists,
+                        key = { it.playlistId },
+                        contentType = { "playlist_card" }
+                    ) { playlist ->
                         val isPinned = pinnedPlaylist?.playlistId == playlist.playlistId
 
                         Card(

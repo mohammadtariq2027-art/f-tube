@@ -977,6 +977,33 @@ object YouTubeDataFetcher {
                 .header("Accept-Language", "en-US,en;q=0.9")
                 .build()
 
+            // 1. Fast & reliable YouTube oEmbed API check
+            try {
+                val oembedUrl = "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=$videoId&format=json"
+                val oembedReq = Request.Builder()
+                    .url(oembedUrl)
+                    .header("User-Agent", USER_AGENT)
+                    .build()
+                client.newCall(oembedReq).execute().use { oembedResp ->
+                    if (oembedResp.isSuccessful) {
+                        val body = oembedResp.body?.string().orEmpty()
+                        if (body.isNotBlank()) {
+                            val json = JSONObject(body)
+                            val oTitle = json.optString("title").trim()
+                            val oAuthor = json.optString("author_name").trim()
+                            if (oTitle.isNotBlank()) {
+                                return@withContext SingleVideoInfo(
+                                    videoId = videoId,
+                                    title = oTitle,
+                                    channelName = oAuthor.ifBlank { "YouTube" }
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
+            // 2. Fallback: Direct watch page HTML scrape
             val response = client.newCall(request).execute()
             if (response.isSuccessful) {
                 val html = response.body?.string().orEmpty()

@@ -103,14 +103,14 @@ object FocusShield {
         "bhojpuri song", "punjabi song", "hindi song", "bollywood song", "haryanvi song",
         "item song", "hip hop song", "rap song", "pop song", "romantic song",
         "sad song", "dance song", "party song", "love song", "hit song", "top songs",
-        "8k video song", "4k video song", "hd video song", "8k video",
+        "8k video song", "4k video song", "hd video song",
 
         // Music Record Labels & Distribution Channels
         "t-series", "tseries", "zee music", "speed records", "sony music", "saregama",
         "desi music factory", "tips official", "tips music", "yrf music", "yrf records", "times music",
         "white hill music", "white hill records", "geet mp3", "desi melodies", "panj-aab records", "vyrl originals",
-        "aditya music", "lahari music", "anand audio", "wave music", "state studio", "onima records",
-        "onima live", "onima", "vevo", "sound recording", "t-series classics",
+        "aditya music", "lahari music", "anand audio", "wave music",
+        "vevo", "t-series classics",
 
         // Prominent Artists / Singers / Bands (Hindi, Punjabi, Bhojpuri, English, International)
         "arijit singh", "badshah rapper", "sidhu moose wala", "sidhu moosewala", "diljit dosanjh",
@@ -119,7 +119,7 @@ object FocusShield {
         "raftaar rapper", "divine rapper", "anuv jain", "prateek kuhad", "darshan raval",
         "armaan malik", "sunidhi chauhan", "kumar sanu", "alka yagnik", "udit narayan", "khesari lal",
         "pawan singh", "shilpi raj", "pramod premi", "b praak", "jaani music", "guru randhawa",
-        "veet baljit", "zack knight", "jasmin walia", "savanna", "sonu ke titu", "bom diggy",
+        "veet baljit", "zack knight", "jasmin walia", "sonu ke titu", "bom diggy",
         "bom diggy diggy", "bhain nanki", "mos ma luj", "mos ma luj djal synin o",
         "justin bieber", "taylor swift", "eminem", "bts songs", "blackpink", "ed sheeran",
         "billie eilish", "the weeknd", "ariana grande", "dua lipa", "alan walker"
@@ -129,8 +129,9 @@ object FocusShield {
     private val MOVIE_KEYWORDS = listOf(
         "full movie hd", "south movie hindi dubbed", "hollywood movie hindi dubbed", "bollywood movie hd",
         "tollywood movie hd", "blockbuster movie hd", "official movie trailer", "teaser trailer movie",
-        "box office collection", "cinema review", "film review", "web series full episode",
-        "daily soap serial", "serial full episode", "drama serial episode"
+        "box office collection", "web series full episode",
+        "daily soap serial", "serial full episode", "drama serial episode",
+        "फुल मूवी", "हिंदी डब मूवी", "साउथ मूवी"
     )
 
     // 3. Comedy & Pranks (कॉमेडी, प्रैंक, चुटकुले)
@@ -139,7 +140,8 @@ object FocusShield {
         "public prank gone wrong", "funny prank video", "comedy vines",
         "bb ki vines", "ashish chanchlani", "round2hell", "round 2 hell", "mythpat comedy",
         "samay raina standup", "munawar faruqui comedy", "zakir khan standup", "harsh beniwal comedy",
-        "amit bhadana comedy", "memes compilation", "troll video compilation"
+        "amit bhadana comedy", "memes compilation", "troll video compilation",
+        "कॉमेडी वीडियो", "प्रैंक वीडियो"
     )
 
     // 4. Roasting (रोस्टिंग)
@@ -151,9 +153,9 @@ object FocusShield {
 
     // 5. Gaming (गेमिंग / कैजुअल गेमप्ले)
     private val GAMING_KEYWORDS = listOf(
-        "pubg", "bgmi", "free fire", "freefire", "gta 5", "gta v",
-        "gameplay", "gaming", "minecraft gameplay", "roblox gameplay", "fortnite",
-        "valorant", "total gaming", "techno gamerz", "mortal gaming", "dynamo gaming",
+        "pubg gameplay", "bgmi gameplay", "free fire gameplay", "freefire gameplay", "gta 5 gameplay", "gta v gameplay",
+        "minecraft gameplay", "roblox gameplay", "fortnite gameplay",
+        "valorant gameplay", "total gaming", "techno gamerz", "mortal gaming", "dynamo gaming",
         "live stream gameplay", "games live stream"
     )
 
@@ -170,6 +172,18 @@ object FocusShield {
 
     // Allowed Work, Farming, Manufacturing, Business & Learning Keywords (Protected from blocking)
     private val WORK_AND_PRODUCTIVE_KEYWORDS = listOf(
+        // Hindi Devanagari Study, Education, Work, Business, Farming & Learning Keywords
+        "पढ़ाई", "शिक्षा", "क्लास", "कक्षा", "कोर्स", "लेक्चर", "नोट्स", "परीक्षा", "तैयारी",
+        "सवाल", "प्रश्न", "उत्तर", "गणित", "विज्ञान", "इतिहास", "भूगोल", "संविधान", "अर्थशास्त्र",
+        "हिंदी", "अंग्रेजी", "ग्रामर", "व्याकरण", "किताब", "समझें", "सीखें", "सीखो", "सिखाना",
+        "ट्यूटोरियल", "ट्रेनिंग", "जानकारी", "ज्ञान", "महत्वपूर्ण", "काम", "बिज़नेस", "बिजनेस",
+        "व्यापार", "कारोबार", "उद्योग", "फैक्ट्री", "मशीन", "खेती", "किसान", "कृषि", "पशुपालन",
+        "डेयरी", "मार्केटिंग", "ब्रांडिंग", "कमाई", "मुनाफा", "नौकरी", "करियर", "इंटरव्यू",
+        "कंप्यूटर", "मोबाइल", "कोडिंग", "प्रोग्रामिंग", "टेक्नोलॉजी", "एआई", "रिपेयर", "सिलाई",
+        "इलेक्ट्रिकल", "मैकेनिकल", "कंस्ट्रक्शन", "डिजाइन", "एडिटिंग", "हेल्थ", "स्वास्थ्य",
+        "मोटिवेशन", "पॉडकास्ट", "केस स्टडी", "योजना", "सरकारी", "कानून", "बैंक", "निवेश",
+        "शेयर मार्केट", "अकाउंटिंग", "जीएसटी", "टैक्स", "बयान", "इस्लामिक", "वजीफा", "दुआ", "कुरान", "हदीस",
+
         // Education & Academics (शिक्षा, पढ़ाई, तैयारी, लेक्चर्स, नोट्स)
         "education", "educational", "edtech", "shiksha", "padhai", "padhai likhai", "vidya",
         "study", "studies", "student", "students", "teacher", "professor", "lecture", "lectures",
@@ -180,11 +194,14 @@ object FocusShield {
         "pariksha", "test", "mock test", "test series", "question paper", "sample paper",
         "answer key", "pyq", "previous year", "solved paper", "solution", "solutions",
         "formula", "formulas", "derivation", "mcq", "quiz", "degree", "diploma", "phd", "research",
+        "learn", "learning", "tutorial", "guide", "training", "explained", "explanation",
+        "summary", "book", "books", "reading", "podcast", "interview", "analysis", "review",
+        "documentary", "case study", "seminar", "webinar", "workshop", "session", "part 1", "part 2",
 
         // Priority & User Importance (महत्वपूर्ण प्लेलिस्ट व स्टडी लिस्ट)
         "important", "imp", "essential", "priority", "key", "must watch", "playlist", "my playlist",
         "my study", "my videos", "saved", "collection", "knowledge", "information", "gyan",
-        "vigyan", "informative", "documentary", "facts", "how it works", "science explained",
+        "vigyan", "informative", "facts", "how it works", "science explained",
 
         // Academic Subjects & Competitive Exam Topics
         "math", "maths", "mathematics", "algebra", "calculus", "geometry", "trigonometry",
@@ -214,7 +231,7 @@ object FocusShield {
         "gardening", "harvest", "soil", "fertilizer", "seed", "beekeeping", "fish farming",
         "machinery", "fodder", "chaff cutter", "pulverizer", "kheti badi", "bagwani",
         "animal husbandry", "horticulture", "irrigation", "pesticide", "cultivation",
-        "shed", "greenhouse", "mulching",
+        "shed", "greenhouse", "mulching", "compost", "vermicompost",
 
         // Manufacturing, Factory, Machinery, Textiles & Trade (मैन्युफैक्चरिंग, मशीन, उद्योग, फैब्रिक)
         "manufacturing", "manufacturer", "fabric", "textile", "textiles", "weaving",
@@ -226,12 +243,13 @@ object FocusShield {
         "automotive", "plumbing", "construction", "civil", "diy", "engineering",
         "craftsmanship", "lathe", "cnc", "tool", "tools", "milling", "die casting",
         "assembly", "fabrication", "saree", "yarn", "cotton", "surat mill",
+        "electrical", "electronics", "solar", "battery", "inverter", "motor", "wiring",
 
         // Business, Commerce, Trade & Income (व्यापार, बिज़नेस, कमाई)
         "business", "business ideas", "vyapar", "trade", "trading", "retail",
         "import", "export", "franchise", "income", "earning", "kamai", "profit",
         "shop", "dukaan", "startup", "entrepreneur", "finance", "investing",
-        "economy", "stocks", "career",
+        "economy", "stocks", "career", "cost", "gst", "tax", "tally", "excel", "law", "legal",
 
         // Business Strategy, Marketing, Branding, E-Commerce & Product Ranking
         "business strategy", "strategy", "case study", "strategic", "business model", "growth strategy",
@@ -244,33 +262,35 @@ object FocusShield {
 
         // Practical Skills, How-to, Demonstration & Learning (काम सिखाना, समझना, इंफॉर्मेशन)
         "how to", "how to make", "how to start", "kaise banaye", "kaise kare", "kaise start kare",
-        "sikhe", "sikho", "tutorial", "guide", "training", "practical", "demo", "demonstration",
-        "explanation", "explained", "technique", "method", "system", "working", "work", "craft", "skill",
+        "kya hai", "kyu hota hai", "kaise hota hai", "sikhe", "sikho", "practical", "demo", "demonstration",
+        "technique", "method", "system", "working", "work", "craft", "skill", "skills", "tips", "tricks",
+        "step by step", "full guide", "complete guide", "beginner", "advanced", "masterclass",
+        "health", "fitness", "yoga", "ayurveda", "medical", "doctor", "diet", "nutrition",
+        "mindset", "motivation", "motivational", "discipline", "focus", "habit", "habits", "productivity",
 
         // Tech, Programming & Coding
         "code", "coding", "program", "programming", "software", "developer", "development",
         "kotlin", "android", "java", "python", "javascript", "react", "html", "css", "sql",
         "data science", "machine learning", "artificial intelligence", "generative ai", "ai tools",
         "ai tutorial", "chatgpt", "cloud", "aws", "docker", "cybersecurity", "networking",
-        "dsa", "algorithms", "system design",
+        "dsa", "algorithms", "system design", "computer", "laptop", "mobile", "smartphone", "app", "website",
 
         // Education, Religious & Spiritual Learning, Bayanat, Moral Teachings & Lectures (बयान, तकरीर, इस्लामिक शिक्षा, वजीफा, दुआ)
         "bayan", "bayanat", "taqreer", "taqrir", "khitab", "khutbah", "dars", "wazifa", "wazaif",
         "dua", "duayein", "islamic", "deen", "hadees", "hadis", "sunnah", "quran", "surah",
         "namaz", "roza", "hajj", "zakat", "molana", "maulana", "mufti", "peer", "sayyed",
         "qadri", "chishti", "razvi", "noori", "azhari", "rohani", "fazeelat", "barkat",
-        "rizq", "rozi", "istighfar", "tahajjud", "amal", "dolat", "garibi", "karobar"
+        "rizq", "rozi", "istighfar", "tahajjud", "amal", "dolat", "garibi"
     )
 
     /**
      * Determines whether a channel or video has explicit work, farming, manufacturing,
      * business, practical trade, or educational signals.
-     * Uses regex word boundaries for short words (length <= 4) to prevent false substring matches (e.g. 'ai' in 'Bhain').
      */
     fun isWorkOrProductiveContent(text: String): Boolean {
         val lower = text.lowercase()
         return WORK_AND_PRODUCTIVE_KEYWORDS.any { keyword ->
-            if (keyword.length <= 4) {
+            if (keyword.length <= 3 && keyword.all { it in 'a'..'z' }) {
                 Regex("\\b" + Regex.escape(keyword) + "\\b").containsMatchIn(lower)
             } else {
                 lower.contains(keyword)
@@ -302,56 +322,43 @@ object FocusShield {
             return ValidationResult.Allowed
         }
 
-        // 2. Work / Farming / Manufacturing / Business Override
-        // If the channel name or handle or recent videos clearly describe work, farming, manufacturing,
-        // machines, business, or practical skills, allow immediately (unless it's an explicit comedy/roast/movie channel).
+        // 2. Work / Education / Farming / Manufacturing / Business Override
         val hasWorkSignals = isWorkOrProductiveContent(combinedText)
+        if (hasWorkSignals) {
+            return ValidationResult.Allowed
+        }
 
         // 3. Strict Check: Is the channel explicitly named after banned distractions?
-        // E.g. "T-Series", "CarryMinati", "Total Gaming", "Sony Music", "Best Bollywood Movies", "Pranks Zone"
         for (blocked in ALL_BLOCKED_KEYWORDS) {
-            // Check channel name and handle with word matching to prevent false positives (e.g. "mulching film" in kheti)
             if (cleanName.contains(blocked) || cleanHandle.contains(blocked)) {
-                // If it's a known work channel using a word incidentally, verify
-                if (hasWorkSignals && (cleanName.contains("farming") || cleanName.contains("kheti") ||
-                                cleanName.contains("manufacturing") || cleanName.contains("machine") ||
-                                cleanName.contains("business") || cleanName.contains("fabric"))) {
-                    // Legitimate work channel (e.g. agricultural mulching film, textile machine demo)
-                    continue
-                }
                 val categoryDesc = categorizeDistraction(blocked)
                 return ValidationResult.Blocked(
-                    "Channel matches blocked distraction category ($categoryDesc: '$blocked'). FocusTube blocks movies, music, comedy, roasting, casual gaming, and sensational news. All work, farming, manufacturing, business & skill channels are allowed."
+                    "Channel matches blocked distraction category ($categoryDesc: '$blocked'). FocusTube blocks movies, music, comedy, roasting, casual gaming, and sensational news."
                 )
             }
         }
 
         // 4. Sample Video Titles Inspection
-        // If sample video titles contain a high proportion of movies, songs, roasts, or gaming, block the channel.
         if (sampleVideoTitles.isNotEmpty()) {
             var distractionCount = 0
             for (title in sampleVideoTitles) {
-                if (isDistractionVideo(title)) {
+                if (isDistractionVideo(title, channelName)) {
                     distractionCount++
                 }
             }
             val distractionRatio = distractionCount.toDouble() / sampleVideoTitles.size.toDouble()
-            // If more than 40% of recent videos are explicit entertainment/songs/roasts/games, block
-            if (distractionRatio > 0.40 && !hasWorkSignals) {
+            if (distractionRatio > 0.60) {
                 return ValidationResult.Blocked(
-                    "Distraction content detected in channel ($distractionCount of ${sampleVideoTitles.size} sampled videos match movies/music/comedy/roasts/gaming/masala news). Only work, farming, manufacturing, business, skill, and educational channels are allowed."
+                    "Distraction content detected in channel ($distractionCount of ${sampleVideoTitles.size} sampled videos match movies/music/comedy/roasts/gaming)."
                 )
             }
         }
 
-        // 5. Work channels, tutorials, explanations, and non-distraction channels are allowed
         return ValidationResult.Allowed
     }
 
     /**
      * Validates whether a playlist qualifies for addition to FocusTube.
-     * All farming, manufacturing, machinery, business, skills, and educational playlists are ALLOWED.
-     * Distraction playlists (Music, Songs, Movies, Comedy, Roasts, Gaming, Gossip) are BLOCKED AT THE GATE.
      */
     fun validatePlaylist(
         playlistTitle: String,
@@ -361,33 +368,21 @@ object FocusShield {
         val cleanTitle = playlistTitle.trim().lowercase()
         val hasWorkSignals = isWorkOrProductiveContent(cleanTitle)
 
-        // 1. Direct check on playlist title
-        // Only block if the playlist title itself is EXPLICITLY a blocked distraction category:
-        for (blocked in ALL_BLOCKED_KEYWORDS) {
-            if (cleanTitle.contains(blocked)) {
-                if (hasWorkSignals) {
-                    continue
-                }
-                val categoryDesc = categorizeDistraction(blocked)
-                return ValidationResult.Blocked(
-                    "Playlist matches blocked distraction category ($categoryDesc: '$blocked'). FocusTube strictly blocks music, movies, comedy, and entertainment. All education, study, work, farming, manufacturing, business & skill playlists can be added."
-                )
-            }
-        }
-
-        // 2. Reject playlist only if title is explicitly 'undefined' and no sample videos exist
-        if (cleanTitle == "undefined" && sampleVideoTitles.isEmpty()) {
-            return ValidationResult.Blocked(
-                "Invalid or blocked playlist. Please provide a valid educational or work playlist."
-            )
-        }
-
-        // 3. If the playlist title has clear work / education / study signals, ALLOW it immediately
         if (hasWorkSignals) {
             return ValidationResult.Allowed
         }
 
-        // 4. Sample videos check for generic playlist titles (e.g. "YouTube Playlist", "Saved", "Batch 1"):
+        // 1. Direct check on playlist title
+        for (blocked in ALL_BLOCKED_KEYWORDS) {
+            if (cleanTitle.contains(blocked)) {
+                val categoryDesc = categorizeDistraction(blocked)
+                return ValidationResult.Blocked(
+                    "Playlist matches blocked distraction category ($categoryDesc: '$blocked'). FocusTube blocks music, movies, comedy, and entertainment."
+                )
+            }
+        }
+
+        // 2. Sample videos check
         if (sampleVideoTitles.isNotEmpty()) {
             val productiveCount = sampleVideoTitles.indices.count { index ->
                 isWorkOrProductiveContent(sampleVideoTitles[index]) ||
@@ -397,17 +392,13 @@ object FocusShield {
                 isDistractionVideo(sampleVideoTitles[index], sampleChannelNames.getOrNull(index).orEmpty())
             }
 
-            // If there are productive/educational videos or less than 50% are distractions, ALLOW:
-            if (productiveCount > 0 || distractionCount < (sampleVideoTitles.size / 2)) {
+            if (productiveCount > 0 || distractionCount <= (sampleVideoTitles.size * 2 / 3)) {
                 return ValidationResult.Allowed
             }
 
-            // Only block if >= 50% are explicit music/distractions and 0 are productive:
-            if (distractionCount >= (sampleVideoTitles.size / 2) && productiveCount == 0) {
-                return ValidationResult.Blocked(
-                    "Distraction content detected in playlist ($distractionCount of ${sampleVideoTitles.size} sampled videos match music, songs, or entertainment). FocusTube strictly blocks music and entertainment playlists."
-                )
-            }
+            return ValidationResult.Blocked(
+                "Distraction content detected in playlist ($distractionCount of ${sampleVideoTitles.size} sampled videos match music, songs, movies, or comedy)."
+            )
         }
 
         return ValidationResult.Allowed
@@ -415,9 +406,8 @@ object FocusShield {
 
     /**
      * Determines whether an individual video is a distraction.
-     * Takes both title and channelName.
      * Work, education, study, farming, manufacturing, machine, business, and skill videos are ALWAYS kept safe.
-     * Entertainment movies, songs, comedy vines, roasts, games, and sensational news are filtered out.
+     * Only unmistakable entertainment movies, songs, comedy vines, roasts, casual gaming, and sensational gossip are blocked.
      */
     fun isDistractionVideo(title: String, channelName: String = ""): Boolean {
         val lowerTitle = title.lowercase().trim()
@@ -428,31 +418,29 @@ object FocusShield {
         val hasWorkOrStudySignals = isWorkOrProductiveContent(lowerTitle) || isWorkOrProductiveContent(lowerChannel)
 
         if (hasWorkOrStudySignals) {
-            // If it has genuine education, study, or work signals, it is PROTECTED.
-            // ONLY block it if it is an UNAMBIGUOUS explicit song, full movie, or roast release:
+            // Protected work/study/learning video!
+            // Only block if it is an UNAMBIGUOUS explicit song, full movie, or roast release:
             val isExplicitMusicOrMovie = lowerTitle.contains("official music video") ||
                     lowerTitle.contains("official video song") ||
                     lowerTitle.contains("full video song") ||
-                    lowerTitle.contains("video song") ||
                     lowerTitle.contains("audio song") ||
-                    lowerTitle.contains("full song") ||
+                    lowerTitle.contains("lyrical video") ||
+                    lowerTitle.contains("lyric video") ||
                     lowerTitle.contains("remix song") ||
                     lowerTitle.contains("punjabi song") ||
                     lowerTitle.contains("bhojpuri song") ||
                     lowerTitle.contains("bollywood song") ||
+                    lowerTitle.contains("haryanvi song") ||
                     lowerTitle.contains("jukebox") ||
                     lowerTitle.contains("full movie hd") ||
                     lowerTitle.contains("south movie hindi dubbed") ||
                     lowerTitle.contains("carryminati roast") ||
-                    lowerTitle.contains("pubg gameplay")
-            if (isExplicitMusicOrMovie) {
-                return true
-            }
-            // All other educational lectures, tutorials, classes, exams, study materials are 100% ALLOWED!
-            return false
+                    lowerTitle.contains("pubg gameplay") ||
+                    lowerTitle.contains("free fire gameplay")
+            return isExplicitMusicOrMovie
         }
 
-        // 2. ABSOLUTE MUSIC & ENTERTAINMENT GATE (for non-work/non-education videos):
+        // 2. Explicit Music, Movie, Comedy, Roast & Gaming checks (without false-positive substrings like 'ost')
         if (lowerTitle.contains("official music video") || lowerTitle.contains("official video song") ||
             lowerTitle.contains("music video") || lowerTitle.contains("video song") ||
             lowerTitle.contains("audio song") || lowerTitle.contains("full video song") ||
@@ -461,43 +449,35 @@ object FocusShield {
             lowerTitle.contains("jukebox") ||
             (lowerTitle.contains("slowed") && lowerTitle.contains("reverb")) ||
             lowerTitle.contains("lofi beats") || lowerTitle.contains("8d audio") ||
-            lowerTitle.contains("3d audio") || lowerTitle.contains("soundtrack") ||
-            lowerTitle.contains("ost") || lowerTitle.contains("official audio") ||
             lowerTitle.contains("8k video song") || lowerTitle.contains("4k video song") ||
-            (lowerTitle.contains("8k video") && (lowerTitle.contains("bom diggy") || lowerTitle.contains("zack knight") || lowerTitle.contains("song"))) ||
-            (lowerTitle.contains("official video") && (lowerTitle.contains("song") || lowerTitle.contains("gaana") ||
-                    lowerTitle.contains("geet") || lowerTitle.contains("punjabi") || lowerTitle.contains("bhojpuri") ||
-                    lowerTitle.contains("music") || lowerTitle.contains("lyrics") || lowerTitle.contains("veet baljit") ||
-                    lowerTitle.contains("t-series") || lowerTitle.contains("singer") || lowerTitle.contains("feat") ||
-                    lowerTitle.contains("ft."))) ||
             lowerTitle.contains("full movie hd") || lowerTitle.contains("south movie hindi dubbed") ||
             lowerTitle.contains("carryminati roast") || lowerTitle.contains("roast video") ||
-            lowerTitle.contains("pubg") || lowerTitle.contains("bgmi") ||
-            lowerTitle.contains("free fire") || lowerTitle.contains("gta 5") ||
-            lowerTitle.contains("gameplay")) {
+            lowerTitle.contains("standup comedy") || lowerTitle.contains("stand-up comedy") ||
+            lowerTitle.contains("funny prank video") ||
+            lowerTitle.contains("pubg gameplay") || lowerTitle.contains("bgmi gameplay") ||
+            lowerTitle.contains("free fire gameplay") || lowerTitle.contains("gta 5 gameplay")) {
             return true
         }
 
         // 3. Channel-Level Music & Record Label Detection
         if (lowerChannel.isNotBlank()) {
             val isKnownMusicOrDistractionChannel = lowerChannel.contains("t-series") || lowerChannel.contains("tseries") ||
-                    lowerChannel.contains("speed records") || lowerChannel.contains("state studio") ||
-                    lowerChannel.contains("onima") || lowerChannel.contains("sony music") ||
+                    lowerChannel.contains("speed records") ||
+                    lowerChannel.contains("sony music") ||
                     lowerChannel.contains("zee music") || lowerChannel.contains("saregama") ||
-                    lowerChannel.contains("yrf") || lowerChannel.contains("white hill") ||
+                    lowerChannel.contains("yrf music") || lowerChannel.contains("white hill music") ||
                     lowerChannel.contains("geet mp3") || lowerChannel.contains("desi melodies") ||
-                    lowerChannel.contains("desi music factory") || lowerChannel.contains("panj-aab") ||
-                    lowerChannel.contains("savanna") || lowerChannel.contains("vevo") ||
-                    lowerChannel.endsWith("music") || lowerChannel.endsWith("records") ||
-                    lowerChannel.endsWith("songs")
+                    lowerChannel.contains("desi music factory") || lowerChannel.contains("panj-aab records") ||
+                    lowerChannel.contains("tips official") || lowerChannel.contains("tips music") ||
+                    lowerChannel.endsWith(" music") || lowerChannel.endsWith(" songs")
             if (isKnownMusicOrDistractionChannel) {
                 return true
             }
         }
 
-        // 4. Keyword matching across all blocked entertainment/distraction lists
+        // 4. Keyword matching across explicit blocked entertainment/distraction lists
         return ALL_BLOCKED_KEYWORDS.any { blocked ->
-            if (blocked.length <= 4) {
+            if (blocked.length <= 5) {
                 Regex("\\b" + Regex.escape(blocked) + "\\b").containsMatchIn(combined)
             } else {
                 combined.contains(blocked)

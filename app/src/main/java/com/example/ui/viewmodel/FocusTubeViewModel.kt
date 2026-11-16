@@ -17,10 +17,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class FocusTubeViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -34,11 +36,15 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
         accountManager = com.example.util.GoogleAccountManager(db.dao())
         googleUserProfile = accountManager.userProfile
 
-        // 🔑 Restore permanent Google session (auto-login on startup) & run nightly sync if due
-        viewModelScope.launch {
+        // 🔑 Restore permanent Google session (auto-login on startup) & sync playlists/channels
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 accountManager.restoreSession()
-                if (accountManager.userProfile.value.isNightlySyncEnabled && com.example.util.NightlySyncScheduler.isNightTimeOrDue()) {
+                val prof = accountManager.userProfile.value
+                if (prof.isSignedIn || com.example.util.YouTubeSyncHelper.hasYouTubeWebSession()) {
+                    repository.syncUserAccountChannelsAndPlaylists(application, prof.email, prof.youtubeOAuthToken)
+                }
+                if (prof.isNightlySyncEnabled && com.example.util.NightlySyncScheduler.isNightTimeOrDue()) {
                     com.example.util.NightlySyncScheduler.performNightlySync(application, repository, accountManager, viewModelScope) {
                         _statusMessage.value = it
                     }
@@ -60,7 +66,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
 
-        // 🔄 Automatic Backup Check on Startup:
+        // 🔄 Automatic Backup Check & Header Timestamp Initialization on Startup:
         // If app is reinstalled or opened with an empty database, auto-restore from detected backup!
         viewModelScope.launch {
             try {
@@ -68,6 +74,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                 if (restored) {
                     _statusMessage.value = "🔄 पिछला बैकअप मिला! सभी ग्रुप्स, चैनल्स और प्लेलिस्ट रीस्टोर कर दिए गए हैं।"
                 }
+                com.example.util.AutoBackupHelper.initializeBackupStatus(application, repository)
             } catch (e: Exception) {
                 android.util.Log.w("FocusTubeViewModel", "Auto-restore check skipped: ${e.message}")
             }
@@ -89,7 +96,13 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
     val pinnedPlaylist: StateFlow<PlaylistEntity?> = repository.pinnedPlaylist
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val allChannels: StateFlow<List<ChannelEntity>> = repository.allChannels
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val allSavedVideos: StateFlow<List<VideoEntity>> = repository.getAllVideos()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val recentPlaylistIds: StateFlow<List<String>> = repository.recentPlaylistIdsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Current playing video
@@ -105,6 +118,9 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    val lastBackupTimestamp: StateFlow<String> = com.example.util.AutoBackupHelper.lastBackupTimestampFlow
+    val isBackupInProgress: StateFlow<Boolean> = com.example.util.AutoBackupHelper.isBackupInProgressFlow
 
     // Home Active Title in English
     val homeTitle: StateFlow<String> = combine(pinnedGroup, pinnedPlaylist) { group, playlist ->
@@ -204,6 +220,51 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
+     * PocketTube-style Checkbox Toggle:
+     * Ticks or unticks a subscribed channel into/out of a specific Group!
+     */
+    fun toggleChannelInGroup(channelName: String, handleOrUrl: String, groupId: Long, assign: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val changed = repository.toggleChannelInGroup(channelName, handleOrUrl, groupId, assign)
+            val grpName = allGroups.value.find { it.id == groupId }?.name ?: "Group"
+            if (assign && changed) {
+                _statusMessage.value = "✓ '$channelName' को '$grpName' ग्रुप में जोड़ दिया गया"
+                // Fetch latest videos for this group in background
+                try {
+                    repository.syncGroupChannels(groupId)
+                } catch (_: Exception) {}
+            } else if (!assign && changed) {
+                _statusMessage.value = "'$channelName' को '$grpName' ग्रुप से हटा दिया गया"
+            }
+            com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
+        }
+    }
+
+    /**
+     * Fetches ALL Subscribed Channels (A-Z) and ALL Playlists (A-Z) from the user's YouTube account!
+     */
+    fun syncMyYouTubeChannelsAndPlaylists() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isSyncing.value = true
+            try {
+                accountManager.updateYouTubeAutoSaveSession()
+                val prof = googleUserProfile.value
+                val (chCount, plCount) = repository.syncUserAccountChannelsAndPlaylists(
+                    context = getApplication(),
+                    email = prof.email,
+                    oauthToken = prof.youtubeOAuthToken
+                )
+                _statusMessage.value = "✅ YouTube सिंक पूरा! कुल $chCount चैनल्स (A–Z) और $plCount प्लेलिस्ट (A–Z) उपलब्ध हैं।"
+                com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
+            } catch (e: Exception) {
+                _statusMessage.value = "YouTube सिंक त्रुटि: ${e.localizedMessage ?: "पुनः प्रयास करें"}"
+            } finally {
+                _isSyncing.value = false
+            }
+        }
+    }
+
+    /**
      * Real fetch and add playlist with its YouTube videos
      */
     fun addPlaylist(rawInput: String, customTitle: String = "") {
@@ -242,6 +303,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                         } else {
                             "All playlist videos are up to date."
                         }
+                        com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
                     },
                     onFailure = { e ->
                         _statusMessage.value = "Sync failed: ${e.localizedMessage ?: "Network error"}"
@@ -265,6 +327,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                         } else {
                             "Feed refreshed: All channel videos are up to date."
                         }
+                        com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
                     },
                     onFailure = { e ->
                         _statusMessage.value = "Sync failed: ${e.localizedMessage ?: "Network error"}"
@@ -284,28 +347,29 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
      * so that latest videos appear automatically without requiring manual button presses.
      */
     private fun startAutomaticSyncLoop() {
-        viewModelScope.launch {
-            // Initial auto-sync 30s after launch so app startup is instant and non-blocking
-            delay(30000)
+        viewModelScope.launch(Dispatchers.IO) {
+            // Initial auto-sync 45s after launch so app startup is instant and non-blocking
+            delay(45000)
             autoSyncAllActiveContent()
 
-            // Periodic background sync loop every 5 minutes
+            // Periodic background sync loop every 10 minutes
             while (isActive) {
-                delay(5 * 60 * 1000L) // 5 minutes interval
+                delay(10 * 60 * 1000L)
                 autoSyncAllActiveContent()
             }
         }
     }
 
-    private suspend fun autoSyncAllActiveContent() {
+    private suspend fun autoSyncAllActiveContent() = withContext(Dispatchers.IO) {
         try {
             // Do not run background sync if the user is actively watching a video, ensuring 100% smooth playback
             if (currentPlayingVideo.value != null) {
-                return
+                return@withContext
             }
 
-            // 1. Sync pinned/active group first
-            val activeGroup = pinnedGroup.value ?: allGroups.value.firstOrNull()
+            // 1. Sync only the currently pinned/active group or playlist to avoid background CPU/network stutter
+            val activeGroup = pinnedGroup.value
+            val activePlaylist = pinnedPlaylist.value
             if (activeGroup != null) {
                 val groupResult = repository.syncGroupChannels(activeGroup.id)
                 groupResult.onSuccess { added ->
@@ -313,11 +377,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                         _statusMessage.value = "⚡ Auto-sync: $added new video(s) appeared in ${activeGroup.name}"
                     }
                 }
-            }
-
-            // 2. Sync pinned playlist if any
-            val activePlaylist = pinnedPlaylist.value
-            if (activePlaylist != null) {
+            } else if (activePlaylist != null) {
                 val playlistResult = repository.syncPlaylistVideos(activePlaylist.playlistId)
                 playlistResult.onSuccess { added ->
                     if (added > 0) {
@@ -325,50 +385,108 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                 }
             }
-
-            // 3. Silently sync any other groups in background
-            val otherGroups = allGroups.value.filter { it.id != activeGroup?.id }
-            for (other in otherGroups) {
-                repository.syncGroupChannels(other.id)
-            }
         } catch (e: Exception) {
             android.util.Log.d("FocusTubeViewModel", "Auto sync cycle skipped: ${e.message}")
         }
     }
 
-    fun addVideoToGroup(groupId: Long, title: String, channelName: String, videoUrlOrId: String) {
-        if (title.isNotBlank() && com.example.util.FocusShield.isDistractionVideo(title)) {
-            _statusMessage.value = "🛡️ Focus Shield: Video blocked (matches movies, songs, comedy, roasting, gaming, or masala news)"
+    fun addVideoFromHome(title: String, videoUrlOrId: String) {
+        val trimmedInput = videoUrlOrId.trim()
+        // If user pasted a playlist link on Home, import it as a playlist
+        if ((trimmedInput.contains("list=") && FocusTubeRepository.extractVideoId(trimmedInput) == null) || trimmedInput.startsWith("PL")) {
+            addPlaylist(trimmedInput, title)
             return
         }
-        viewModelScope.launch {
-            val id = FocusTubeRepository.extractVideoId(videoUrlOrId) ?: videoUrlOrId.trim()
+        val activeGrp = pinnedGroup.value
+        val activePl = pinnedPlaylist.value
+        when {
+            activeGrp != null -> addVideoToGroup(activeGrp.id, title, activeGrp.name, trimmedInput)
+            activePl != null -> addVideoToPlaylist(activePl.playlistId, title, activePl.title, trimmedInput)
+            allPlaylists.value.isNotEmpty() -> {
+                val firstPl = allPlaylists.value.first()
+                setPinnedPlaylist(firstPl.playlistId)
+                addVideoToPlaylist(firstPl.playlistId, title, firstPl.title, trimmedInput)
+            }
+            allGroups.value.isNotEmpty() -> {
+                val firstGrp = allGroups.value.first()
+                setPinnedGroup(firstGrp.id)
+                addVideoToGroup(firstGrp.id, title, firstGrp.name, trimmedInput)
+            }
+            else -> {
+                // Create a default study/work playlist, pin it to Home, and add the video
+                viewModelScope.launch(Dispatchers.IO) {
+                    val defaultPlId = "custom_home_study"
+                    repository.createCustomPlaylist(defaultPlId, "Important Study & Work Videos")
+                    repository.setPinnedPlaylist(defaultPlId)
+                    addVideoToPlaylist(defaultPlId, title, "Important Study & Work Videos", trimmedInput)
+                }
+            }
+        }
+    }
+
+    fun addVideoToGroup(groupId: Long, title: String, channelName: String, videoUrlOrId: String) {
+        val trimmedInput = videoUrlOrId.trim()
+        // If user pasted a channel handle or channel URL here, add it as a channel to the group
+        if (trimmedInput.contains("/@") || trimmedInput.startsWith("@") || trimmedInput.contains("/channel/")) {
+            addChannelToGroup(trimmedInput, groupId)
+            return
+        }
+        if (title.isNotBlank() && com.example.util.FocusShield.isDistractionVideo(title, channelName)) {
+            _statusMessage.value = "🛡️ Focus Shield: यह टाइम-वेस्ट/म्यूजिक/कॉमेडी वीडियो है, इसलिए ब्लॉक किया गया।"
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val id = FocusTubeRepository.extractVideoId(trimmedInput) ?: trimmedInput
             if (id.isNotBlank()) {
+                var finalTitle = title.trim()
+                var finalChannel = channelName.trim()
+                val info = repository.fetchSingleVideoInfo(id)
+                if (info != null) {
+                    if (finalTitle.isBlank() || finalTitle.startsWith("Video #")) {
+                        finalTitle = info.title
+                    }
+                    if (finalChannel.isBlank() || finalChannel == "Group Video" || finalChannel == "Channel") {
+                        finalChannel = info.channelName
+                    }
+                }
+
+                // Only block if user did not specify a custom study title AND metadata is an explicit song/movie/comedy/roast
+                if (title.isBlank() && com.example.util.FocusShield.isDistractionVideo(finalTitle, finalChannel)) {
+                    _statusMessage.value = "🛡️ Focus Shield: यह गाना/मूवी/कॉमेडी/रोस्ट वीडियो है, इसलिए ब्लॉक किया गया।"
+                    return@launch
+                }
+
                 val cleanDur = com.example.util.DurationUtils.formatCleanDuration("", id)
-                repository.insertVideo(
+                val rowId = repository.insertVideo(
                     VideoEntity(
                         videoId = id,
                         groupId = groupId,
-                        title = title.ifBlank { "Video #$id" },
-                        channelName = channelName.ifBlank { "Channel" },
+                        title = finalTitle.ifBlank { "Study & Work Video ($id)" },
+                        channelName = finalChannel.ifBlank { "YouTube" },
                         duration = cleanDur,
                         thumbnailUrl = "https://img.youtube.com/vi/$id/hqdefault.jpg",
                         uploadDate = "Recently added",
                         publishedTimestamp = System.currentTimeMillis()
                     )
                 )
-                _statusMessage.value = "Video added to group"
+                if (rowId == -1L) {
+                    _statusMessage.value = "⚠️ यह वीडियो इस ग्रुप में पहले से मौजूद है!"
+                } else {
+                    _statusMessage.value = "✅ काम/पढ़ाई की वीडियो '${finalTitle.ifBlank { id }}' ग्रुप में जुड़ गई!"
+                    com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
+                }
             }
         }
     }
 
     fun addVideoToPlaylist(playlistId: String, title: String, channelName: String, videoUrlOrId: String) {
+        val trimmedInput = videoUrlOrId.trim()
         if (title.isNotBlank() && com.example.util.FocusShield.isDistractionVideo(title, channelName)) {
-            _statusMessage.value = "🛡️ Focus Shield: Video blocked (matches music, movie, comedy, roasting, gaming, or gossip)"
+            _statusMessage.value = "🛡️ Focus Shield: यह टाइम-वेस्ट/म्यूजिक/कॉमेडी वीडियो है, इसलिए ब्लॉक किया गया।"
             return
         }
-        viewModelScope.launch {
-            val id = FocusTubeRepository.extractVideoId(videoUrlOrId) ?: videoUrlOrId.trim()
+        viewModelScope.launch(Dispatchers.IO) {
+            val id = FocusTubeRepository.extractVideoId(trimmedInput) ?: trimmedInput
             if (id.isNotBlank()) {
                 val targetPlaylist = allPlaylists.value.find { it.playlistId == playlistId }
                 val plName = targetPlaylist?.title ?: "Playlist"
@@ -377,7 +495,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                     return@launch
                 }
 
-                // Fetch real video metadata to prevent sneaky music videos with blank/fake titles
+                // Fetch real video metadata
                 var finalTitle = title.trim()
                 var finalChannel = channelName.trim()
                 val info = repository.fetchSingleVideoInfo(id)
@@ -385,14 +503,14 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                     if (finalTitle.isBlank() || finalTitle.startsWith("Video #")) {
                         finalTitle = info.title
                     }
-                    if (finalChannel.isBlank() || finalChannel == "Playlist") {
+                    if (finalChannel.isBlank() || finalChannel == "Playlist" || finalChannel == "Playlist Video") {
                         finalChannel = info.channelName
                     }
                 }
 
-                // Strict validation against music and distractions
-                if (com.example.util.FocusShield.isDistractionVideo(finalTitle.ifBlank { "Video #$id" }, finalChannel)) {
-                    _statusMessage.value = "🛡️ Focus Shield: Video blocked (matches music, movie, comedy, or entertainment)"
+                // Only block if metadata is an explicit song, movie, comedy, roast, or casual game
+                if (title.isBlank() && com.example.util.FocusShield.isDistractionVideo(finalTitle, finalChannel)) {
+                    _statusMessage.value = "🛡️ Focus Shield: यह गाना/मूवी/कॉमेडी/रोस्ट वीडियो है, इसलिए ब्लॉक किया गया।"
                     return@launch
                 }
 
@@ -401,8 +519,8 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                     VideoEntity(
                         videoId = id,
                         playlistId = playlistId,
-                        title = finalTitle.ifBlank { "Video #$id" },
-                        channelName = finalChannel.ifBlank { "Playlist" },
+                        title = finalTitle.ifBlank { "Study & Work Video ($id)" },
+                        channelName = finalChannel.ifBlank { "YouTube" },
                         duration = cleanDur,
                         thumbnailUrl = "https://img.youtube.com/vi/$id/hqdefault.jpg",
                         uploadDate = "Recently added",
@@ -412,7 +530,24 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                 if (rowId == -1L) {
                     _statusMessage.value = "⚠️ यह वीडियो '$plName' में पहले से मौजूद है! (Already added)"
                 } else {
-                    _statusMessage.value = "Video added to playlist"
+                    repository.markPlaylistRecentlyUsed(playlistId)
+                    val profile = googleUserProfile.value
+                    val syncedToYt = if (com.example.util.YouTubeSyncHelper.isRealYouTubePlaylist(playlistId)) {
+                        com.example.util.YouTubeSyncHelper.autoAddVideoToYouTubePlaylist(
+                            context = getApplication(),
+                            playlistId = playlistId,
+                            videoId = id,
+                            email = profile.email,
+                            oauthToken = profile.youtubeOAuthToken
+                        )
+                    } else false
+
+                    if (syncedToYt) {
+                        repository.updateVideoYouTubeSync(rowId, true)
+                        _statusMessage.value = "✅ वीडियो '$plName' और आपकी ओरिजिनल YouTube प्लेलिस्ट दोनों में ऑटो-सेव हो गया!"
+                    } else {
+                        _statusMessage.value = "✅ वीडियो '${finalTitle.ifBlank { id }}' प्लेलिस्ट '$plName' में जुड़ गया!"
+                    }
                     com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
                 }
             }
@@ -428,20 +563,80 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
             val targetPlaylist = allPlaylists.value.find { it.playlistId == playlistId }
             val plName = targetPlaylist?.title ?: "Playlist"
             if (repository.checkVideoExistsInPlaylist(playlistId, video.videoId)) {
+                repository.markPlaylistRecentlyUsed(playlistId)
                 _statusMessage.value = "⚠️ यह वीडियो '$plName' में पहले से मौजूद है! (Already added)"
                 return@launch
             }
-            val result = repository.copyVideoToPlaylist(video, playlistId)
-            if (result == -1L) {
+            val rowId = repository.copyVideoToPlaylist(video, playlistId)
+            if (rowId == -1L) {
+                repository.markPlaylistRecentlyUsed(playlistId)
                 _statusMessage.value = "⚠️ यह वीडियो '$plName' में पहले से मौजूद है! (Already added)"
                 return@launch
             }
-            _statusMessage.value = "Saved '${video.title}' to '$plName'"
+            repository.markPlaylistRecentlyUsed(playlistId)
+
+            val profile = googleUserProfile.value
+            val isRealYtPlaylist = com.example.util.YouTubeSyncHelper.isRealYouTubePlaylist(playlistId)
+            val syncedToYt = if (isRealYtPlaylist) {
+                com.example.util.YouTubeSyncHelper.autoAddVideoToYouTubePlaylist(
+                    context = getApplication(),
+                    playlistId = playlistId,
+                    videoId = video.videoId,
+                    email = profile.email,
+                    oauthToken = profile.youtubeOAuthToken
+                )
+            } else false
+
+            if (syncedToYt) {
+                repository.updateVideoYouTubeSync(rowId, true)
+                _statusMessage.value = "✅ '${video.title}' ऐप और आपकी ओरिजिनल YouTube प्लेलिस्ट ('$plName') दोनों में ऑटो-सेव हो गया!"
+            } else if (isRealYtPlaylist) {
+                _statusMessage.value = "✓ '$plName' में सेव हो गया! (ओरिजिनल YouTube में ऑटो-सेव के लिए ऊपर Google आइकन में 'YouTube Auto-Save' 1 बार चालू करें)"
+            } else {
+                _statusMessage.value = "Saved '${video.title}' to '$plName'"
+            }
+
             com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
 
             if (andOpenYouTube && context != null) {
                 com.example.util.YouTubeSyncHelper.openInYouTubeApp(context, video.videoId, playlistId)
             }
+        }
+    }
+
+    fun moveVideoToPlaylist(video: VideoEntity, targetPlaylistId: String) {
+        if (com.example.util.FocusShield.isDistractionVideo(video.title, video.channelName)) {
+            _statusMessage.value = "🛡️ Focus Shield: Cannot move music or distraction video"
+            return
+        }
+        if (video.playlistId == targetPlaylistId) {
+            val targetPl = allPlaylists.value.find { it.playlistId == targetPlaylistId }
+            _statusMessage.value = "⚠️ यह वीडियो पहले से ही '${targetPl?.title ?: "इस प्लेलिस्ट"}' में है"
+            return
+        }
+        viewModelScope.launch {
+            val targetPlaylist = allPlaylists.value.find { it.playlistId == targetPlaylistId }
+            val plName = targetPlaylist?.title ?: "Playlist"
+            val newRowId = repository.moveVideoBetweenPlaylists(video, targetPlaylistId)
+            repository.markPlaylistRecentlyUsed(targetPlaylistId)
+
+            val profile = googleUserProfile.value
+            val isRealYtPlaylist = com.example.util.YouTubeSyncHelper.isRealYouTubePlaylist(targetPlaylistId)
+            val syncedToYt = if (isRealYtPlaylist) {
+                com.example.util.YouTubeSyncHelper.autoAddVideoToYouTubePlaylist(
+                    context = getApplication(),
+                    playlistId = targetPlaylistId,
+                    videoId = video.videoId,
+                    email = profile.email,
+                    oauthToken = profile.youtubeOAuthToken
+                )
+            } else false
+
+            if (syncedToYt && newRowId != -1L) {
+                repository.updateVideoYouTubeSync(newRowId, true)
+            }
+            _statusMessage.value = "📦 '${video.title}' को '$plName' प्लेलिस्ट में मूव कर दिया गया!"
+            com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
         }
     }
 
@@ -452,14 +647,30 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
         }
         viewModelScope.launch {
             val cleanTitle = title.trim().ifBlank { "My Saved Videos" }
-            val generatedId = "custom_pl_" + System.currentTimeMillis()
-            repository.createCustomPlaylist(generatedId, cleanTitle)
-            repository.copyVideoToPlaylist(video, generatedId)
-            _statusMessage.value = "Created '$cleanTitle' and saved video"
+            val profile = googleUserProfile.value
+            val createdYtPlaylistId = com.example.util.YouTubeSyncHelper.autoCreateYouTubePlaylist(
+                context = getApplication(),
+                title = cleanTitle,
+                videoId = video.videoId,
+                email = profile.email,
+                oauthToken = profile.youtubeOAuthToken
+            )
+            val finalPlaylistId = createdYtPlaylistId ?: ("custom_pl_" + System.currentTimeMillis())
+            repository.createCustomPlaylist(finalPlaylistId, cleanTitle)
+            val rowId = repository.copyVideoToPlaylist(video, finalPlaylistId)
+            if (createdYtPlaylistId != null && rowId != -1L) {
+                repository.updateVideoYouTubeSync(rowId, true)
+            }
+            repository.markPlaylistRecentlyUsed(finalPlaylistId)
+            _statusMessage.value = if (createdYtPlaylistId != null) {
+                "✅ नई प्लेलिस्ट '$cleanTitle' आपकी ऐप और ओरिजिनल YouTube दोनों में बनकर वीडियो सेव हो गया!"
+            } else {
+                "Created '$cleanTitle' and saved video"
+            }
             com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
 
             if (andOpenYouTube && context != null) {
-                com.example.util.YouTubeSyncHelper.openInYouTubeApp(context, video.videoId, generatedId)
+                com.example.util.YouTubeSyncHelper.openInYouTubeApp(context, video.videoId, finalPlaylistId)
             }
         }
     }
@@ -531,7 +742,8 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
             if (_currentPlayingVideo.value?.id == videoId) {
                 _currentPlayingVideo.value = _currentPlayingVideo.value?.copy(notes = notes)
             }
-            _statusMessage.value = "Notes saved"
+            com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
+            _statusMessage.value = "✓ नोट इस वीडियो के साथ लिंक होकर सेव और ऑटो-बैकअप हो गया!"
         }
     }
 
@@ -543,13 +755,18 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
     private val _lastPlayedVideoId = MutableStateFlow<String?>(null)
     val lastPlayedVideoId: StateFlow<String?> = _lastPlayedVideoId.asStateFlow()
 
-    fun playVideo(video: VideoEntity) {
+    private val _initialSeekSeconds = MutableStateFlow<Int?>(null)
+    val initialSeekSeconds: StateFlow<Int?> = _initialSeekSeconds.asStateFlow()
+
+    fun playVideo(video: VideoEntity, startAtSeconds: Int? = null) {
         _lastPlayedVideoId.value = video.videoId
+        _initialSeekSeconds.value = startAtSeconds
         _currentPlayingVideo.value = video
     }
 
     fun closePlayer() {
         _currentPlayingVideo.value = null
+        _initialSeekSeconds.value = null
     }
 
     fun playNextVideo() {
@@ -609,33 +826,51 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    // === Google Account & Nightly Sync Management ===
+    // === Google Account & Google Drive Nightly Sync Management ===
 
-    fun signInWithGoogle(context: android.content.Context) {
+    fun onGoogleAccountPicked(email: String) {
+        viewModelScope.launch {
+            accountManager.saveUserProfile(email)
+            _statusMessage.value = "✓ असली Google अकाउंट कनेक्ट हो गया: $email"
+            com.example.util.NightlySyncScheduler.performNightlySync(getApplication(), repository, accountManager, viewModelScope)
+        }
+    }
+
+    fun onYouTubeSessionConnected(oauthToken: String = "") {
+        viewModelScope.launch {
+            accountManager.updateYouTubeAutoSaveSession(oauthToken)
+            _statusMessage.value = "✅ YouTube ओरिजिनल प्लेलिस्ट Auto-Save सक्रिय हो गया! सभी अनसिंक्ड वीडियो YouTube में सेव हो रहे हैं..."
+            com.example.util.NightlySyncScheduler.performNightlySync(getApplication(), repository, accountManager, viewModelScope) { msg ->
+                _statusMessage.value = msg
+            }
+        }
+    }
+
+    fun linkGoogleDriveBackupFile(uri: android.net.Uri) {
+        viewModelScope.launch {
+            accountManager.saveGoogleDriveBackupUri(getApplication(), uri)
+            com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository, uri.toString())
+            _statusMessage.value = "☁️ Google Drive ऑटो-बैकअप फ़ाइल जुड़ गई! सारे वीडियो व नोट्स सेव हो गए।"
+        }
+    }
+
+    fun restoreFromGoogleDriveBackupFile(uri: android.net.Uri) {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val result = accountManager.signInWithCredentialManager(context)
+                accountManager.saveGoogleDriveBackupUri(getApplication(), uri)
+                val result = com.example.util.AutoBackupHelper.restoreFromGoogleDriveUri(getApplication(), repository, uri)
                 result.fold(
-                    onSuccess = { profile ->
-                        _statusMessage.value = "✓ Google अकाउंट से कनेक्टेड: ${profile.displayName} (${profile.email})"
-                        com.example.util.NightlySyncScheduler.performNightlySync(getApplication(), repository, accountManager, viewModelScope)
+                    onSuccess = { count ->
+                        _statusMessage.value = "✓ Google Drive से $count आइटम (ग्रुप्स, प्लेलिस्ट व नोट्स) रीस्टोर हो गए!"
                     },
                     onFailure = { err ->
-                        _statusMessage.value = "Google साइन-इन: ${err.localizedMessage ?: "रद्द किया गया"}"
+                        _statusMessage.value = "Google Drive रीस्टोर विफल: ${err.localizedMessage ?: "अमान्य फ़ाइल"}"
                     }
                 )
             } finally {
                 _isLoading.value = false
             }
-        }
-    }
-
-    fun saveManualGoogleLogin(email: String, name: String) {
-        viewModelScope.launch {
-            accountManager.saveUserProfile(email, name)
-            _statusMessage.value = "✓ स्थायी Google अकाउंट कनेक्ट हो गया: $email"
-            com.example.util.NightlySyncScheduler.performNightlySync(getApplication(), repository, accountManager, viewModelScope)
         }
     }
 
@@ -656,6 +891,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
     fun syncAllNowWithAccount() {
         viewModelScope.launch {
             _isSyncing.value = true
+            com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
             com.example.util.NightlySyncScheduler.performNightlySync(getApplication(), repository, accountManager, viewModelScope) {
                 _statusMessage.value = it
                 _isSyncing.value = false

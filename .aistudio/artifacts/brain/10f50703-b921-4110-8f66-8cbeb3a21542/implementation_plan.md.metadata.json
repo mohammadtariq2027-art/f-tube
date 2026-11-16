@@ -1,6 +1,0 @@
-{
-  "summary": "Revised implementation plan detailing how the official YouTube app utilizes Android OS AccountManager & Google Play Services OAuth tokens, and how FocusTube mirrors this exact architecture to achieve permanent 1-time login with zero user re-authentication, alongside the daily automated backup system.",
-  "updatedAt": "2026-11-06T17:01:44.797165249Z",
-  "requestFeedback": true,
-  "userFacing": true
-}

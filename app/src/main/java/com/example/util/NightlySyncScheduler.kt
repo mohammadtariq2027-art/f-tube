@@ -16,7 +16,10 @@ object NightlySyncScheduler {
 
     /**
      * Executes automatic nightly sync and backup.
-     * Backs up all data, syncs playlists with YouTube, and marks sync status.
+     * 1. Backs up all groups, channels, playlists, and video-linked notes (including Google Drive URI).
+     * 2. Pushes any unsynced locally-saved playlist videos directly to the user's real YouTube playlist
+     *    if YouTube Auto-Save session/OAuth is active.
+     * 3. Fetches fresh videos for all playlists from YouTube.
      */
     fun performNightlySync(
         context: Context,
@@ -28,34 +31,65 @@ object NightlySyncScheduler {
         scope.launch(Dispatchers.IO) {
             try {
                 Log.d(TAG, "Starting Nightly Auto-Sync & Backup...")
+                accountManager.updateYouTubeAutoSaveSession()
+                val profile = accountManager.userProfile.value
 
-                // 1. Auto-Backup all groups, channels, and playlists
-                AutoBackupHelper.triggerAutoBackup(context, repository)
+                // 0. Discover & import ALL user playlists (A to Z) and ALL subscribed channels (A to Z) from YouTube
+                try {
+                    repository.syncUserAccountChannelsAndPlaylists(
+                        context = context,
+                        email = profile.email,
+                        oauthToken = profile.youtubeOAuthToken
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "Account channels/playlists discovery note: ${e.message}")
+                }
 
-                // 2. Fetch fresh videos for all playlists
+                // 1. Push any unsynced videos in real YouTube playlists to the user's actual YouTube playlist
                 val playlists = repository.getAllPlaylistsSnapshot()
+                var pushedToYouTubeCount = 0
+                for (pl in playlists) {
+                    if (YouTubeSyncHelper.isRealYouTubePlaylist(pl.playlistId)) {
+                        val unsynced = repository.getUnsyncedVideosForPlaylistSnapshot(pl.playlistId)
+                        for (vid in unsynced) {
+                            val added = YouTubeSyncHelper.autoAddVideoToYouTubePlaylist(
+                                context = context,
+                                playlistId = pl.playlistId,
+                                videoId = vid.videoId,
+                                email = profile.email,
+                                oauthToken = profile.youtubeOAuthToken
+                            )
+                            if (added) {
+                                repository.updateVideoYouTubeSync(vid.id, true)
+                                pushedToYouTubeCount++
+                            }
+                        }
+                    }
+                }
+
+                // 2. Fetch fresh videos for all playlists from YouTube
                 var totalNewVideos = 0
                 for (pl in playlists) {
                     val result = repository.syncPlaylistVideos(pl.playlistId)
                     result.onSuccess { totalNewVideos += it }
                 }
 
-                // 3. If signed in, ensure all videos in playlists are synced
-                val profile = accountManager.userProfile.value
-                if (profile.isSignedIn) {
-                    for (pl in playlists) {
-                        repository.markAllPlaylistVideosSynced(pl.playlistId)
-                    }
-                }
+                // 3. Auto-Backup all groups, channels, playlists, and video-linked notes
+                AutoBackupHelper.triggerAutoBackup(context, repository)
 
                 val nowStr = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date())
-                val syncStatus = "🌙 ऑटो-सिंक संपन्न: $nowStr"
+                val syncStatus = if (pushedToYouTubeCount > 0) {
+                    "✓ सिंक संपन्न ($nowStr) • $pushedToYouTubeCount वीडियो असली YouTube प्लेलिस्ट में सेव हुए"
+                } else {
+                    "🌙 ऑटो-सिंक व बैकअप संपन्न: $nowStr"
+                }
                 accountManager.updateLastSyncTime(syncStatus)
 
-                Log.d(TAG, "Nightly Auto-Sync completed ($totalNewVideos new videos)")
+                Log.d(TAG, "Nightly Auto-Sync completed ($totalNewVideos new, $pushedToYouTubeCount pushed to YouTube)")
                 onComplete?.invoke(syncStatus)
             } catch (e: Exception) {
                 Log.w(TAG, "Nightly sync error: ${e.message}")
+                onComplete?.invoke("सिंक में त्रुटि: ${e.localizedMessage ?: "पुनः प्रयास करें"}")
             }
         }
     }

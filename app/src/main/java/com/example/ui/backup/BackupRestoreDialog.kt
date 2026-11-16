@@ -130,7 +130,7 @@ fun BackupRestoreDialog(
                 if (selectedTab == 0) {
                     // EXPORT TAB
                     Text(
-                        text = "Save your entire channel groups, subscribed channels, playlists, and added videos as JSON. You can copy it to clipboard or keep it in a safe place.",
+                        text = "आपके सभी चैनल ग्रुप्स, चैनल्स, प्लेलिस्ट और हर वीडियो के साथ लिंक किए गए नोट्स (Video Notes) रात के ऑटो-बैकअप व इस JSON में सुरक्षित रहते हैं।",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -147,7 +147,7 @@ fun BackupRestoreDialog(
                             value = exportedJson,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Backup Data (JSON)") },
+                            label = { Text("Backup Data (Groups, Playlists, Videos + Linked Notes)") },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = 200.dp),
@@ -178,7 +178,7 @@ fun BackupRestoreDialog(
                 } else {
                     // IMPORT TAB
                     Text(
-                        text = "Paste a previously exported FocusTube JSON backup here to restore your groups, channels, and playlists.",
+                        text = "यहाँ से बैकअप रीस्टोर करने पर आपके सभी ग्रुप्स, चैनल्स, प्लेलिस्ट और किस वीडियो पर कौन सा नोट लिखा था—सब कुछ उसी वीडियो के साथ वापस जुड़ जाएगा।",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

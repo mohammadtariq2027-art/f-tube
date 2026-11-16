@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlaylistPlay
+import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.PlaylistPlay
@@ -51,6 +53,8 @@ import com.example.ui.add.AddPlaylistDialog
 import com.example.ui.add.AddVideoGenericDialog
 import com.example.ui.backup.BackupRestoreDialog
 import com.example.ui.components.GoogleAccountDialog
+import com.example.ui.components.StartupReminderGateScreen
+import com.example.ui.dashboard.UsageDashboardScreen
 import com.example.ui.groups.GroupsScreen
 import com.example.ui.home.HomeScreen
 import com.example.ui.player.FocusPlayerView
@@ -62,7 +66,8 @@ import com.example.ui.viewmodel.FocusTubeViewModel
 enum class MainTab {
     HOME,
     GROUPS,
-    PLAYLISTS
+    PLAYLISTS,
+    DASHBOARD
 }
 
 sealed class VideoAddDestination {
@@ -79,6 +84,7 @@ fun MainApp(
 ) {
     var selectedTab by remember { mutableStateOf(MainTab.HOME) }
     var viewingPlaylistDetail by remember { mutableStateOf<PlaylistEntity?>(null) }
+    var showStartupReminderGate by rememberSaveable { mutableStateOf(true) }
     var showAddPlaylistDialog by remember { mutableStateOf(false) }
     var showBackupDialog by remember { mutableStateOf(false) }
     var showGoogleAccountDialog by remember { mutableStateOf(false) }
@@ -92,6 +98,7 @@ fun MainApp(
     val pinnedGroup by viewModel.pinnedGroup.collectAsState()
     val pinnedPlaylist by viewModel.pinnedPlaylist.collectAsState()
     val allGroups by viewModel.allGroups.collectAsState()
+    val allChannels by viewModel.allChannels.collectAsState()
     val allPlaylists by viewModel.allPlaylists.collectAsState()
     val homeVideos by viewModel.homeVideos.collectAsState()
     val allSavedVideos by viewModel.allSavedVideos.collectAsState()
@@ -102,7 +109,9 @@ fun MainApp(
     val channelSearchHistory by viewModel.getSearchHistory("CHANNEL").collectAsState(initial = emptyList())
     val playlistSearchHistory by viewModel.getSearchHistory("PLAYLIST").collectAsState(initial = emptyList())
     val lastPlayedVideoId by viewModel.lastPlayedVideoId.collectAsState()
+    val initialSeekSeconds by viewModel.initialSeekSeconds.collectAsState()
     val googleUser by viewModel.googleUserProfile.collectAsState()
+    val recentPlaylistIds by viewModel.recentPlaylistIds.collectAsState()
 
     // Handle shared YouTube links directly from Android Share Sheet
     LaunchedEffect(initialSharedUrl) {
@@ -147,6 +156,17 @@ fun MainApp(
         }
     }
 
+    // Persistent Visual App Timer Ticker (starts on app open, resumes from saved second on reopen,
+    // and triggers the Fullscreen Startup Reminder Gate whenever the app is reopened)
+    com.example.ui.components.PersistentVisualTimerTickerEffect(
+        activeVideo = currentPlayingVideo,
+        allSavedVideos = allSavedVideos,
+        allChannels = allChannels,
+        onAppReturnedToForeground = {
+            showStartupReminderGate = true
+        }
+    )
+
     Box(modifier = Modifier.fillMaxSize()) {
         // Base Layer: Main Scaffold with navigation bar and main tabs
         Scaffold(
@@ -190,6 +210,18 @@ fun MainApp(
                             label = { Text("Playlists") },
                             modifier = Modifier.testTag("nav_playlists_tab")
                         )
+                        NavigationBarItem(
+                            selected = selectedTab == MainTab.DASHBOARD,
+                            onClick = { selectedTab = MainTab.DASHBOARD },
+                            icon = {
+                                Icon(
+                                    imageVector = if (selectedTab == MainTab.DASHBOARD) Icons.Filled.Assessment else Icons.Outlined.Assessment,
+                                    contentDescription = "Dashboard"
+                                )
+                            },
+                            label = { Text("Dashboard") },
+                            modifier = Modifier.testTag("nav_dashboard_tab")
+                        )
                     }
                 }
             }
@@ -214,8 +246,16 @@ fun MainApp(
                             onSelectPinnedGroup = { viewModel.setPinnedGroup(it) },
                             onSelectPinnedPlaylist = { viewModel.setPinnedPlaylist(it) },
                             onSelectVideo = { viewModel.playVideo(it) },
+                            onSelectVideoAtTimestamp = { video, startSec -> viewModel.playVideo(video, startSec) },
                             onToggleCompleted = { viewModel.toggleCompleted(it) },
                             onSaveToPlaylist = { videoToSaveToPlaylist = it },
+                            onDropVideoToPlaylist = { video, targetPlaylistId ->
+                                if (!video.playlistId.isNullOrBlank() && video.playlistId != targetPlaylistId) {
+                                    viewModel.moveVideoToPlaylist(video, targetPlaylistId)
+                                } else {
+                                    viewModel.saveVideoToPlaylist(video, targetPlaylistId)
+                                }
+                            },
                             onOpenAddVideoDialog = {
                                 addVideoDestination = VideoAddDestination.Home
                             },
@@ -223,7 +263,11 @@ fun MainApp(
                             onSyncGroup = { viewModel.syncGroup(it) },
                             onSyncPlaylist = { viewModel.syncPlaylist(it) },
                             userProfile = googleUser,
-                            onOpenGoogleAccount = { showGoogleAccountDialog = true }
+                            onOpenGoogleAccount = { showGoogleAccountDialog = true },
+                            onOpenBackupDialog = { showBackupDialog = true },
+                            onSyncAllNowWithAccount = { viewModel.syncAllNowWithAccount() },
+                            onOpenReminderScreen = { showStartupReminderGate = true },
+                            onOpenDashboardTab = { selectedTab = MainTab.DASHBOARD }
                         )
                     }
 
@@ -231,6 +275,7 @@ fun MainApp(
                         GroupsScreen(
                             groups = allGroups,
                             pinnedGroup = pinnedGroup,
+                            allChannels = allChannels,
                             searchHistory = channelSearchHistory,
                             listState = groupsListState,
                             getChannelsForGroup = { viewModel.getChannelsForGroup(it) },
@@ -240,6 +285,9 @@ fun MainApp(
                             onAddChannel = { rawInput, gId -> viewModel.addChannelToGroup(rawInput, gId) },
                             onDeleteChannel = { viewModel.deleteChannel(it) },
                             onMoveChannel = { cId, gId -> viewModel.moveChannelToGroup(cId, gId) },
+                            onToggleChannelInGroup = { name, handle, gId, assign ->
+                                viewModel.toggleChannelInGroup(name, handle, gId, assign)
+                            },
                             onOpenAddVideoToGroup = { gId ->
                                 addVideoDestination = VideoAddDestination.Group(gId)
                             },
@@ -250,7 +298,15 @@ fun MainApp(
                                 viewModel.clearSearchHistory("CHANNEL")
                             },
                             onOpenBackupDialog = { showBackupDialog = true },
-                            onSyncGroup = { viewModel.syncGroup(it) }
+                            onSyncGroup = { viewModel.syncGroup(it) },
+                            isSyncing = isSyncing,
+                            userProfile = googleUser,
+                            onOpenGoogleAccount = { showGoogleAccountDialog = true },
+                            onSyncYouTubeAccount = { viewModel.syncAllNowWithAccount() },
+                            allSavedVideos = allSavedVideos,
+                            playlistsCount = allPlaylists.size,
+                            onOpenReminderScreen = { showStartupReminderGate = true },
+                            onOpenDashboardTab = { selectedTab = MainTab.DASHBOARD }
                         )
                     }
 
@@ -258,8 +314,10 @@ fun MainApp(
                         PlaylistsScreen(
                             playlists = allPlaylists,
                             pinnedPlaylist = pinnedPlaylist,
+                            allSavedVideos = allSavedVideos,
                             onSelectPinnedPlaylist = { viewModel.setPinnedPlaylist(it) },
                             onOpenPlaylistVideos = { viewingPlaylistDetail = it },
+                            onSelectVideoAtTimestamp = { video, startSec -> viewModel.playVideo(video, startSec) },
                             onOpenAddVideoToPlaylist = { plId ->
                                 addVideoDestination = VideoAddDestination.Playlist(plId)
                             },
@@ -267,8 +325,31 @@ fun MainApp(
                             onOpenCreatePlaylistDialog = { showAddPlaylistDialog = true },
                             onOpenBackupDialog = { showBackupDialog = true },
                             onSyncPlaylist = { viewModel.syncPlaylist(it) },
+                            isSyncing = isSyncing,
                             userProfile = googleUser,
-                            onOpenGoogleAccount = { showGoogleAccountDialog = true }
+                            onOpenGoogleAccount = { showGoogleAccountDialog = true },
+                            onSyncYouTubeAccount = { viewModel.syncAllNowWithAccount() },
+                            groupsCount = allGroups.size,
+                            onOpenReminderScreen = { showStartupReminderGate = true },
+                            onOpenDashboardTab = { selectedTab = MainTab.DASHBOARD }
+                        )
+                    }
+
+                    MainTab.DASHBOARD -> {
+                        UsageDashboardScreen(
+                            allSavedVideos = allSavedVideos,
+                            allPlaylists = allPlaylists,
+                            allGroups = allGroups,
+                            allChannels = allChannels,
+                            groupsCount = allGroups.size,
+                            channelsCount = allChannels.distinctBy { it.name.lowercase() }.size,
+                            playlistsCount = allPlaylists.size,
+                            isSyncing = isSyncing,
+                            userProfile = googleUser,
+                            onOpenGoogleAccount = { showGoogleAccountDialog = true },
+                            onOpenBackupDialog = { showBackupDialog = true },
+                            onSyncAllNowWithAccount = { viewModel.syncAllNowWithAccount() },
+                            onOpenStartupReminderScreen = { showStartupReminderGate = true }
                         )
                     }
                 }
@@ -321,8 +402,12 @@ fun MainApp(
                 onBack = { viewingPlaylistDetail = null },
                 onPinToHome = { viewModel.setPinnedPlaylist(it) },
                 onSelectVideo = { viewModel.playVideo(it) },
+                onSelectVideoAtTimestamp = { video, startSec -> viewModel.playVideo(video, startSec) },
                 onToggleCompleted = { viewModel.toggleCompleted(it) },
                 onDeleteVideo = { viewModel.deleteVideo(it) },
+                onMoveVideoToPlaylist = { video, targetPlaylistId ->
+                    viewModel.moveVideoToPlaylist(video, targetPlaylistId)
+                },
                 onOpenAddVideoDialog = {
                     addVideoDestination = VideoAddDestination.Playlist(playlist.playlistId)
                 },
@@ -333,7 +418,16 @@ fun MainApp(
                 onSyncBatchToYouTube = { videoIds -> viewModel.syncBatchToYouTube(context, playlist.playlistId, videoIds) },
                 userProfile = googleUser,
                 onOpenGoogleAccount = { showGoogleAccountDialog = true },
-                onSyncAllNowWithAccount = { viewModel.syncAllNowWithAccount() }
+                onOpenBackupDialog = { showBackupDialog = true },
+                onSyncAllNowWithAccount = { viewModel.syncAllNowWithAccount() },
+                allSavedVideos = allSavedVideos,
+                allPlaylists = allPlaylists,
+                groupsCount = allGroups.size,
+                onOpenReminderScreen = { showStartupReminderGate = true },
+                onOpenDashboardTab = {
+                    viewingPlaylistDetail = null
+                    selectedTab = MainTab.DASHBOARD
+                }
             )
         }
 
@@ -344,6 +438,8 @@ fun MainApp(
                 video = activeVideo,
                 headerTitle = activeVideo.title,
                 allPlaylists = allPlaylists,
+                allSavedVideos = allSavedVideos,
+                recentPlaylistIds = recentPlaylistIds,
                 onBack = { viewModel.closePlayer() },
                 onToggleCompleted = { viewModel.toggleCompleted(it) },
                 onSaveToPlaylist = { v, plId -> viewModel.saveVideoToPlaylist(v, plId) },
@@ -353,7 +449,24 @@ fun MainApp(
                 onDeleteVideo = { vId ->
                     viewModel.deleteVideo(vId)
                     viewModel.closePlayer()
-                }
+                },
+                onRefreshYouTubePlaylists = { viewModel.syncMyYouTubeChannelsAndPlaylists() },
+                initialSeekSeconds = initialSeekSeconds
+            )
+
+            // Persistent Glowing Visual Timer HUD Pill visible even in Fullscreen Video Mode
+            com.example.ui.components.FloatingPlayerVisualTimerPill(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp)
+            )
+        }
+
+        // Fullscreen Startup Focus Reminder Gate Screen:
+        // Appears whenever the app is opened and stays on screen until the user reads and confirms it!
+        if (showStartupReminderGate) {
+            StartupReminderGateScreen(
+                onConfirmReadAndDismiss = { showStartupReminderGate = false }
             )
         }
     }
@@ -393,11 +506,17 @@ fun MainApp(
             userProfile = googleUser,
             isSyncing = isSyncing,
             onDismiss = { showGoogleAccountDialog = false },
-            onSignInWithGoogle = {
-                viewModel.signInWithGoogle(context)
+            onGoogleAccountPicked = { email ->
+                viewModel.onGoogleAccountPicked(email)
             },
-            onManualConnect = { email, name ->
-                viewModel.saveManualGoogleLogin(email, name)
+            onYouTubeSessionConnected = { token ->
+                viewModel.onYouTubeSessionConnected(token)
+            },
+            onLinkGoogleDriveFile = { uri ->
+                viewModel.linkGoogleDriveBackupFile(uri)
+            },
+            onRestoreFromGoogleDriveFile = { uri ->
+                viewModel.restoreFromGoogleDriveBackupFile(uri)
             },
             onSignOut = {
                 viewModel.signOutGoogle()
@@ -425,13 +544,7 @@ fun MainApp(
             onConfirm = { videoUrl, title ->
                 when (dest) {
                     is VideoAddDestination.Home -> {
-                        val g = pinnedGroup
-                        val pl = pinnedPlaylist
-                        if (g != null) {
-                            viewModel.addVideoToGroup(g.id, title, g.name, videoUrl)
-                        } else if (pl != null) {
-                            viewModel.addVideoToPlaylist(pl.playlistId, title, pl.title, videoUrl)
-                        }
+                        viewModel.addVideoFromHome(title, videoUrl)
                     }
                     is VideoAddDestination.Group -> {
                         viewModel.addVideoToGroup(dest.groupId, title, "Group Video", videoUrl)
@@ -452,6 +565,8 @@ fun MainApp(
         SaveVideoToPlaylistDialog(
             video = vid,
             allPlaylists = allPlaylists,
+            allSavedVideos = allSavedVideos,
+            recentPlaylistIds = recentPlaylistIds,
             onDismiss = { videoToSaveToPlaylist = null },
             onSaveExisting = { targetPlId, syncYouTube ->
                 viewModel.saveVideoToPlaylist(vid, targetPlId, andOpenYouTube = syncYouTube, context = context)
@@ -460,7 +575,8 @@ fun MainApp(
             onCreateAndSave = { newTitle, syncYouTube ->
                 viewModel.createPlaylistAndSaveVideo(newTitle, vid, andOpenYouTube = syncYouTube, context = context)
                 videoToSaveToPlaylist = null
-            }
+            },
+            onRefreshYouTubePlaylists = { viewModel.syncMyYouTubeChannelsAndPlaylists() }
         )
     }
 }

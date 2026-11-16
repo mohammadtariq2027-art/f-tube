@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import com.example.data.local.dao.FocusTubeDao
+import com.example.data.local.entity.AppPreferenceEntity
 import com.example.data.local.entity.ChannelEntity
 import com.example.data.local.entity.PlaylistEntity
 import com.example.data.local.entity.SubscriptionGroupEntity
@@ -8,7 +9,10 @@ import com.example.data.local.entity.VideoEntity
 import com.example.data.remote.YouTubeDataFetcher
 import com.example.util.FocusShield
 import com.example.util.ValidationResult
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import java.util.regex.Pattern
 
 class FocusTubeRepository(private val dao: FocusTubeDao) {
@@ -18,6 +22,7 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
 
     val allPlaylists: Flow<List<PlaylistEntity>> = dao.getAllPlaylists()
     val pinnedPlaylist: Flow<PlaylistEntity?> = dao.getPinnedPlaylist()
+    val allChannels: Flow<List<ChannelEntity>> = dao.getAllChannels()
 
     fun getChannelsForGroup(groupId: Long): Flow<List<ChannelEntity>> = dao.getChannelsForGroup(groupId)
 
@@ -44,8 +49,8 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
     /**
      * Real fetch and add of channel + its videos
      */
-    suspend fun fetchAndAddChannelToGroup(rawInput: String, groupId: Long): String {
-        val result = YouTubeDataFetcher.fetchChannel(rawInput, maxContinuationPages = 35)
+    suspend fun fetchAndAddChannelToGroup(rawInput: String, groupId: Long): String = withContext(Dispatchers.IO) {
+        val result = YouTubeDataFetcher.fetchChannel(rawInput, maxContinuationPages = 6)
 
         // Strict Focus Shield validation: Block entertainment, movies, music, prank, roasts, etc.
         val sampleTitles = result.videos.take(20).map { it.title }
@@ -102,7 +107,9 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                 }
             }
         }
-        return "${result.channelName} added with ${safeVideos.size} videos (Focus Shield Active)"
+        // Also keep a master entry (groupId = 0L) for PocketTube A-Z channel list
+        ensureMasterSubscribedChannel(result.channelName, cleanHandleOrUrl)
+        "${result.channelName} added with ${safeVideos.size} videos (Focus Shield Active)"
     }
 
     suspend fun deleteChannel(id: Long) {
@@ -122,7 +129,7 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
      * Strictly validates against FocusShield: Rejects music, songs, movies, comedy, and distraction playlists AT THE GATE.
      * Fully allows and prioritizes all educational, study, and important playlists.
      */
-    suspend fun fetchAndAddPlaylist(rawInput: String, customTitle: String = ""): String {
+    suspend fun fetchAndAddPlaylist(rawInput: String, customTitle: String = ""): String = withContext(Dispatchers.IO) {
         val trimmedInput = rawInput.trim()
 
         // Case 1: User wants to create a custom/empty playlist (e.g. "Important Education", "My Study") without a YouTube link
@@ -136,7 +143,7 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                     isPinnedHome = false
                 )
             )
-            return "Playlist '$title' created successfully. You can now add videos to it."
+            return@withContext "Playlist '$title' created successfully. You can now add videos to it."
         }
 
         // Case 2: User pasted a single YouTube video URL/ID instead of a playlist URL
@@ -173,7 +180,7 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                     publishedTimestamp = System.currentTimeMillis()
                 )
             )
-            return "Playlist '$plTitle' created with video '$vidTitle'."
+            return@withContext "Playlist '$plTitle' created with video '$vidTitle'."
         }
 
         // Case 3: Standard YouTube playlist URL or Playlist ID
@@ -244,7 +251,9 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                         thumbnailUrl = v.thumbnailUrl,
                         uploadDate = v.uploadDate,
                         publishedTimestamp = v.publishedTimestamp,
-                        orderIndex = startOrder + index
+                        orderIndex = startOrder + index,
+                        isSyncedToYouTube = true,
+                        syncedAt = System.currentTimeMillis()
                     )
                 }
                 videoEntities.chunked(400).forEach { batch ->
@@ -252,11 +261,11 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                 }
             }
         }
-        return "'$finalTitle' added with ${safeVideos.size} videos (Focus Shield Active)"
+        "'$finalTitle' added with ${safeVideos.size} videos (Focus Shield Active)"
     }
 
-    suspend fun syncPlaylistVideos(playlistId: String): Result<Int> {
-        return try {
+    suspend fun syncPlaylistVideos(playlistId: String): Result<Int> = withContext(Dispatchers.IO) {
+        try {
             val result = YouTubeDataFetcher.fetchPlaylist(playlistId)
             val existing = dao.getVideosForPlaylistSnapshot(playlistId)
             val existingIds = existing.map { it.videoId }.toSet()
@@ -289,7 +298,9 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                         thumbnailUrl = v.thumbnailUrl,
                         uploadDate = v.uploadDate,
                         publishedTimestamp = v.publishedTimestamp,
-                        orderIndex = startOrder + index
+                        orderIndex = startOrder + index,
+                        isSyncedToYouTube = true,
+                        syncedAt = System.currentTimeMillis()
                     )
                 }
                 videoEntities.chunked(400).forEach { batch ->
@@ -302,11 +313,11 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
         }
     }
 
-    suspend fun syncGroupChannels(groupId: Long): Result<Int> {
-        return try {
+    suspend fun syncGroupChannels(groupId: Long): Result<Int> = withContext(Dispatchers.IO) {
+        try {
             val channels = dao.getChannelsForGroupSnapshot(groupId)
             if (channels.isEmpty()) {
-                return Result.success(0)
+                return@withContext Result.success(0)
             }
             val existing = dao.getVideosForGroupSnapshot(groupId)
             val existingIds = existing.map { it.videoId }.toMutableSet()
@@ -315,7 +326,7 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
             for (ch in channels) {
                 try {
                     val query = ch.handleOrUrl.ifBlank { ch.name }
-                    val result = YouTubeDataFetcher.fetchChannel(query, maxContinuationPages = 15)
+                    val result = YouTubeDataFetcher.fetchChannel(query, maxContinuationPages = 2)
 
                     // Identify genuinely new videos from this channel, filtering out any casual distraction videos and duplicates
                     val safeVideos = result.videos.filterNot { FocusShield.isDistractionVideo(it.title, it.channelName) }
@@ -369,7 +380,12 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                 return -1L // Video already exists in this group
             }
         }
-        return dao.insertVideo(video)
+        val linkedNotes = if (video.notes.isNotBlank()) {
+            video.notes
+        } else {
+            dao.getExistingNotesForVideoId(video.videoId) ?: ""
+        }
+        return dao.insertVideo(video.copy(notes = linkedNotes))
     }
 
     suspend fun checkVideoExistsInPlaylist(playlistId: String, videoId: String): Boolean {
@@ -394,6 +410,11 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
         if (dao.countVideoInPlaylist(targetPlaylistId, video.videoId) > 0) {
             return -1L // Already exists in target playlist
         }
+        val linkedNotes = if (video.notes.isNotBlank()) {
+            video.notes
+        } else {
+            dao.getExistingNotesForVideoId(video.videoId) ?: ""
+        }
         return dao.insertVideo(
             VideoEntity(
                 videoId = video.videoId,
@@ -403,11 +424,20 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                 description = video.description,
                 duration = video.duration,
                 thumbnailUrl = video.thumbnailUrl,
-                notes = video.notes,
+                notes = linkedNotes,
                 uploadDate = video.uploadDate,
                 publishedTimestamp = video.publishedTimestamp
             )
         )
+    }
+
+    suspend fun moveVideoBetweenPlaylists(video: VideoEntity, targetPlaylistId: String): Long {
+        if (video.playlistId == targetPlaylistId) return video.id
+        val newRowId = copyVideoToPlaylist(video, targetPlaylistId)
+        if (video.id > 0L && !video.playlistId.isNullOrBlank()) {
+            dao.deleteVideo(video.id)
+        }
+        return newRowId
     }
 
     suspend fun updateVideoNotes(videoId: Long, notes: String) {
@@ -481,6 +511,10 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
         return dao.getUnsyncedVideosForPlaylist(playlistId)
     }
 
+    suspend fun getUnsyncedVideosForPlaylistSnapshot(playlistId: String): List<VideoEntity> {
+        return dao.getVideosForPlaylistSnapshot(playlistId).filter { !it.isSyncedToYouTube }
+    }
+
     // === Search History ===
     fun getSearchHistory(type: String): Flow<List<com.example.data.local.entity.SearchHistoryEntity>> {
         return dao.getSearchHistory(type)
@@ -509,7 +543,7 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
     }
 
     // === Backup & Restore (Export / Import) ===
-    suspend fun exportBackupJson(): String {
+    suspend fun exportBackupJson(): String = withContext(Dispatchers.IO) {
         val groups = dao.getAllGroupsSnapshot()
         val channels = dao.getAllChannelsSnapshot()
         val playlists = dao.getAllPlaylistsSnapshot()
@@ -528,16 +562,16 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
             .addLast(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
             .build()
         val adapter = moshi.adapter(com.example.data.backup.FocusTubeBackup::class.java)
-        return adapter.indent("  ").toJson(backup)
+        adapter.indent("  ").toJson(backup)
     }
 
-    suspend fun importBackupJson(jsonString: String, replaceExisting: Boolean = false): Result<Int> {
-        return try {
+    suspend fun importBackupJson(jsonString: String, replaceExisting: Boolean = false): Result<Int> = withContext(Dispatchers.IO) {
+        try {
             val moshi = com.squareup.moshi.Moshi.Builder()
                 .addLast(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
                 .build()
             val adapter = moshi.adapter(com.example.data.backup.FocusTubeBackup::class.java)
-            val backup = adapter.fromJson(jsonString) ?: return Result.failure(Exception("Invalid backup JSON format"))
+            val backup = adapter.fromJson(jsonString) ?: return@withContext Result.failure(Exception("Invalid backup JSON format"))
 
             if (replaceExisting) {
                 dao.clearAllVideos()
@@ -557,6 +591,12 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
             }
             if (backup.videos.isNotEmpty()) {
                 dao.insertVideos(backup.videos)
+                // Ensure video-linked notes are applied to all instances sharing the same videoId
+                for (v in backup.videos) {
+                    if (v.notes.isNotBlank()) {
+                        dao.updateNotesByVideoId(v.videoId, v.notes)
+                    }
+                }
             }
 
             val totalItems = backup.groups.size + backup.playlists.size + backup.channels.size + backup.videos.size
@@ -566,8 +606,134 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
         }
     }
 
+    // === Recently Used Playlists Tracking (for Save to Playlist dialog) ===
+    val recentPlaylistIdsFlow: Flow<List<String>> = dao.getPreference("recent_playlist_order").map { raw ->
+        raw?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+    }
+
+    suspend fun markPlaylistRecentlyUsed(playlistId: String) {
+        if (playlistId.isBlank()) return
+        val currentRaw = dao.getPreferenceSnapshot("recent_playlist_order") ?: ""
+        val currentList = currentRaw.split(",").map { it.trim() }.filter { it.isNotEmpty() && it != playlistId }
+        val updatedList = listOf(playlistId) + currentList
+        dao.setPreference(
+            AppPreferenceEntity(
+                key = "recent_playlist_order",
+                value = updatedList.take(100).joinToString(",")
+            )
+        )
+    }
+
     suspend fun getAllGroupsSnapshot(): List<SubscriptionGroupEntity> = dao.getAllGroupsSnapshot()
     suspend fun getAllPlaylistsSnapshot(): List<PlaylistEntity> = dao.getAllPlaylistsSnapshot()
+    suspend fun getPreferenceSnapshot(key: String): String? = dao.getPreferenceSnapshot(key)
+    suspend fun setPreference(pref: AppPreferenceEntity) = dao.setPreference(pref)
+
+    private suspend fun ensureMasterSubscribedChannel(name: String, handleOrUrl: String) {
+        val existingAll = dao.getAllChannelsSnapshot()
+        val normName = name.trim().lowercase()
+        val normUrl = handleOrUrl.trim().lowercase()
+        val hasMaster = existingAll.any {
+            it.groupId == 0L && (it.name.trim().lowercase() == normName || (normUrl.isNotBlank() && it.handleOrUrl.trim().lowercase() == normUrl))
+        }
+        if (!hasMaster && name.isNotBlank()) {
+            dao.insertChannel(
+                ChannelEntity(
+                    name = name.trim(),
+                    handleOrUrl = handleOrUrl.trim(),
+                    groupId = 0L
+                )
+            )
+        }
+    }
+
+    /**
+     * Fetches ALL user playlists (A to Z) and ALL subscribed channels (A to Z) from the logged-in
+     * YouTube account and imports them into the local database so they appear in Playlists,
+     * Save-to-Playlist dialog, and PocketTube-style Channel Groups!
+     */
+    suspend fun syncUserAccountChannelsAndPlaylists(
+        context: android.content.Context,
+        email: String,
+        oauthToken: String
+    ): Pair<Int, Int> = withContext(Dispatchers.IO) {
+        // 1. Fetch & import ALL user playlists (A to Z)
+        val discoveredPlaylists = com.example.util.YouTubeSyncHelper.fetchAllUserPlaylistsFromYouTube(
+            context = context,
+            email = email,
+            oauthToken = oauthToken
+        )
+        val existingPlaylists = dao.getAllPlaylistsSnapshot().associateBy { it.playlistId }
+        for (pl in discoveredPlaylists) {
+            val existing = existingPlaylists[pl.playlistId]
+            if (existing == null) {
+                dao.insertPlaylist(
+                    PlaylistEntity(
+                        playlistId = pl.playlistId,
+                        title = pl.title,
+                        isPinnedHome = false
+                    )
+                )
+            } else if (existing.title != pl.title && pl.title.isNotBlank()) {
+                dao.updatePlaylistTitle(pl.playlistId, pl.title)
+            }
+        }
+
+        // 2. Fetch & import ALL subscribed channels (A to Z) into master pool (groupId = 0L)
+        val discoveredChannels = com.example.util.YouTubeSyncHelper.fetchAllSubscribedChannelsFromYouTube(
+            context = context,
+            email = email,
+            oauthToken = oauthToken
+        )
+        for (ch in discoveredChannels) {
+            ensureMasterSubscribedChannel(ch.name, ch.handleOrUrl)
+        }
+
+        val totalPlaylists = dao.getAllPlaylistsSnapshot().size
+        val totalSubscribedChannels = dao.getAllChannelsSnapshot()
+            .distinctBy { it.name.trim().lowercase() }
+            .size
+        Pair(totalSubscribedChannels, totalPlaylists)
+    }
+
+    /**
+     * PocketTube-style Checkbox Toggle:
+     * Assigns or unassigns a subscribed channel to/from a specific Group with 1 tap.
+     */
+    suspend fun toggleChannelInGroup(
+        channelName: String,
+        handleOrUrl: String,
+        groupId: Long,
+        assign: Boolean
+    ): Boolean = withContext(Dispatchers.IO) {
+        ensureMasterSubscribedChannel(channelName, handleOrUrl)
+        val groupChannels = dao.getChannelsForGroupSnapshot(groupId)
+        val normName = channelName.trim().lowercase()
+        val normUrl = handleOrUrl.trim().lowercase()
+        val existingInGroup = groupChannels.filter {
+            it.name.trim().lowercase() == normName || (normUrl.isNotBlank() && it.handleOrUrl.trim().lowercase() == normUrl)
+        }
+
+        if (assign) {
+            if (existingInGroup.isEmpty()) {
+                dao.insertChannel(
+                    ChannelEntity(
+                        name = channelName.trim(),
+                        handleOrUrl = handleOrUrl.trim(),
+                        groupId = groupId
+                    )
+                )
+                return@withContext true
+            }
+            false
+        } else {
+            for (ch in existingInGroup) {
+                dao.deleteVideosForChannelInGroup(groupId, ch.id)
+                dao.deleteChannel(ch.id)
+            }
+            existingInGroup.isNotEmpty()
+        }
+    }
 
     companion object {
         fun extractVideoId(input: String): String? {
@@ -576,11 +742,16 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                 return trimmed
             }
             val pattern = Pattern.compile(
-                "(?:https?:\\/\\/)?(?:www\\.|m\\.)?(?:youtube\\.com\\/(?:watch\\?.*?v=|embed\\/|v\\/|shorts\\/)|youtu\\.be\\/)([a-zA-Z0-9_-]{11})"
+                "(?:youtube\\.com\\/(?:watch\\?.*?(?:v=|vi=)|embed\\/|v\\/|shorts\\/|live\\/)|youtu\\.be\\/)([a-zA-Z0-9_-]{11})"
             )
             val matcher = pattern.matcher(trimmed)
-            return if (matcher.find()) {
-                matcher.group(1)
+            if (matcher.find()) {
+                return matcher.group(1)
+            }
+            // Fallback: check v= parameter anywhere in the string
+            val vParam = Pattern.compile("[?&]v=([a-zA-Z0-9_-]{11})").matcher(trimmed)
+            return if (vParam.find()) {
+                vParam.group(1)
             } else {
                 null
             }

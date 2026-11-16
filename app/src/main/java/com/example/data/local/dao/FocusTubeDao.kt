@@ -61,6 +61,9 @@ interface FocusTubeDao {
     @Query("DELETE FROM channels WHERE id = :id")
     suspend fun deleteChannel(id: Long)
 
+    @Query("DELETE FROM videos WHERE groupId = :groupId AND channelDbId = :channelDbId")
+    suspend fun deleteVideosForChannelInGroup(groupId: Long, channelDbId: Long)
+
     @Query("UPDATE channels SET groupId = :newGroupId WHERE id = :channelId")
     suspend fun updateChannelGroup(channelId: Long, newGroupId: Long)
 
@@ -161,8 +164,14 @@ interface FocusTubeDao {
     @Query("UPDATE videos SET isCompleted = :completed WHERE id = :id")
     suspend fun setVideoCompleted(id: Long, completed: Boolean)
 
-    @Query("UPDATE videos SET notes = :notes WHERE id = :id")
+    @Query("UPDATE videos SET notes = :notes WHERE id = :id OR videoId = (SELECT videoId FROM videos WHERE id = :id LIMIT 1)")
     suspend fun updateVideoNotes(id: Long, notes: String)
+
+    @Query("UPDATE videos SET notes = :notes WHERE videoId = :videoId")
+    suspend fun updateNotesByVideoId(videoId: String, notes: String)
+
+    @Query("SELECT notes FROM videos WHERE videoId = :videoId AND notes != '' LIMIT 1")
+    suspend fun getExistingNotesForVideoId(videoId: String): String?
 
     @Query("UPDATE videos SET duration = :duration WHERE videoId = :videoId")
     suspend fun updateVideoDuration(videoId: String, duration: String)
@@ -199,7 +208,6 @@ interface FocusTubeDao {
         ORDER BY 
             CASE WHEN publishedTimestamp > 0 THEN publishedTimestamp ELSE addedAt END DESC, 
             id DESC
-        LIMIT 500
     """)
     fun getAllVideosFlow(): Flow<List<VideoEntity>>
 
