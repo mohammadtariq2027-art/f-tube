@@ -23,7 +23,7 @@ data class GoogleUserProfile(
     val photoUrl: String = "",
     val isSignedIn: Boolean = false,
     val isNightlySyncEnabled: Boolean = true,
-    val lastSyncTime: String = "रात को ऑटो-सिंक सक्रिय (Scheduled)",
+    val lastSyncTime: String = "Nightly Auto-Sync Active (Scheduled)",
     val googleDriveBackupUri: String = "",
     val youtubeOAuthToken: String = "",
     val isYouTubeAutoSaveActive: Boolean = false
@@ -44,6 +44,7 @@ class GoogleAccountManager(private val dao: FocusTubeDao) {
         private const val KEY_LAST_SYNC = "google_last_sync_time"
         const val KEY_DRIVE_BACKUP_URI = "google_drive_backup_uri"
         const val KEY_YOUTUBE_OAUTH_TOKEN = "google_youtube_oauth_token"
+        const val KEY_YT_WEB_SESSION = "google_yt_web_session_connected"
 
         /**
          * Creates Android's official system Google Account Picker intent.
@@ -76,10 +77,15 @@ class GoogleAccountManager(private val dao: FocusTubeDao) {
                 val name = dao.getPreferenceSnapshot(KEY_NAME).orEmpty()
                 val photo = dao.getPreferenceSnapshot(KEY_PHOTO).orEmpty()
                 val nightlySync = dao.getPreferenceSnapshot(KEY_NIGHTLY_SYNC) != "false" // default true
-                val lastSync = dao.getPreferenceSnapshot(KEY_LAST_SYNC) ?: "रात को ऑटो-सिंक सक्रिय (10:00 PM)"
+                val lastSync = dao.getPreferenceSnapshot(KEY_LAST_SYNC) ?: "Nightly Auto-Sync Active (10:00 PM)"
                 val driveUri = dao.getPreferenceSnapshot(KEY_DRIVE_BACKUP_URI).orEmpty()
                 val oauthToken = dao.getPreferenceSnapshot(KEY_YOUTUBE_OAUTH_TOKEN).orEmpty()
-                val hasWebSession = YouTubeSyncHelper.hasYouTubeWebSession()
+                val savedWebSession = dao.getPreferenceSnapshot(KEY_YT_WEB_SESSION) == "true"
+                val hasWebSession = if (savedWebSession) {
+                    YouTubeSyncHelper.hasYouTubeWebSession(allowColdInit = true)
+                } else {
+                    false
+                }
                 val ytAutoSave = hasWebSession || oauthToken.isNotBlank()
 
                 if ((isSignedIn && email.isNotBlank()) || hasWebSession) {
@@ -132,7 +138,7 @@ class GoogleAccountManager(private val dao: FocusTubeDao) {
             dao.setPreference(AppPreferenceEntity(KEY_NAME, cleanName))
             dao.setPreference(AppPreferenceEntity(KEY_PHOTO, photoUrl))
             dao.setPreference(AppPreferenceEntity(KEY_SIGNED_IN, "true"))
-            dao.setPreference(AppPreferenceEntity(KEY_LAST_SYNC, "सिंक हुआ: $nowStr"))
+            dao.setPreference(AppPreferenceEntity(KEY_LAST_SYNC, "Synced: $nowStr"))
             if (savedToken.isNotBlank()) {
                 dao.setPreference(AppPreferenceEntity(KEY_YOUTUBE_OAUTH_TOKEN, savedToken))
             }
@@ -143,7 +149,7 @@ class GoogleAccountManager(private val dao: FocusTubeDao) {
                 photoUrl = photoUrl,
                 isSignedIn = true,
                 isNightlySyncEnabled = _userProfile.value.isNightlySyncEnabled,
-                lastSyncTime = "सिंक हुआ: $nowStr",
+                lastSyncTime = "Synced: $nowStr",
                 googleDriveBackupUri = driveUri,
                 youtubeOAuthToken = savedToken,
                 isYouTubeAutoSaveActive = ytAutoSave
@@ -160,11 +166,15 @@ class GoogleAccountManager(private val dao: FocusTubeDao) {
                 dao.setPreference(AppPreferenceEntity(KEY_YOUTUBE_OAUTH_TOKEN, oauthToken.trim()))
             }
             try {
+                YouTubeSyncHelper.markCookieManagerReady()
                 CookieManager.getInstance().flush()
             } catch (_: Exception) {}
 
             val savedToken = oauthToken.ifBlank { dao.getPreferenceSnapshot(KEY_YOUTUBE_OAUTH_TOKEN).orEmpty() }
-            val hasWeb = YouTubeSyncHelper.hasYouTubeWebSession()
+            val hasWeb = YouTubeSyncHelper.hasYouTubeWebSession(allowColdInit = true)
+            if (hasWeb) {
+                dao.setPreference(AppPreferenceEntity(KEY_YT_WEB_SESSION, "true"))
+            }
             val active = hasWeb || savedToken.isNotBlank()
 
             val currentEmail = _userProfile.value.email.ifBlank {
@@ -238,6 +248,7 @@ class GoogleAccountManager(private val dao: FocusTubeDao) {
         withContext(Dispatchers.IO) {
             dao.setPreference(AppPreferenceEntity(KEY_SIGNED_IN, "false"))
             dao.setPreference(AppPreferenceEntity(KEY_YOUTUBE_OAUTH_TOKEN, ""))
+            dao.setPreference(AppPreferenceEntity(KEY_YT_WEB_SESSION, "false"))
             try {
                 CookieManager.getInstance().removeAllCookies(null)
                 CookieManager.getInstance().flush()

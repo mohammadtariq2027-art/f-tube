@@ -453,13 +453,6 @@ fun MainApp(
                 onRefreshYouTubePlaylists = { viewModel.syncMyYouTubeChannelsAndPlaylists() },
                 initialSeekSeconds = initialSeekSeconds
             )
-
-            // Persistent Glowing Visual Timer HUD Pill visible even in Fullscreen Video Mode
-            com.example.ui.components.FloatingPlayerVisualTimerPill(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 8.dp)
-            )
         }
 
         // Fullscreen Startup Focus Reminder Gate Screen:
@@ -467,6 +460,16 @@ fun MainApp(
         if (showStartupReminderGate) {
             StartupReminderGateScreen(
                 onConfirmReadAndDismiss = { showStartupReminderGate = false }
+            )
+        }
+
+        // Paytm / PhonePe-Style Fullscreen Biometric App Lock Gate:
+        // When App Lock is enabled, requires Fingerprint / Face Unlock on every cold launch or reopen after exit.
+        val isAppLockEnabled by com.example.ui.components.BiometricAppLockManager.isAppLockEnabled.collectAsState()
+        val isSessionUnlocked by com.example.ui.components.BiometricAppLockManager.isSessionUnlocked.collectAsState()
+        if (isAppLockEnabled && !isSessionUnlocked) {
+            com.example.ui.components.BiometricLockGateScreen(
+                modifier = Modifier.fillMaxSize()
             )
         }
     }

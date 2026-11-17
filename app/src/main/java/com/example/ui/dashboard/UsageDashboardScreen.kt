@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -100,22 +103,8 @@ fun UsageDashboardScreen(
     onOpenStartupReminderScreen: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    LaunchedEffect(context) {
-        VisualScreenTimerManager.ensureInitialized(context)
-        VisualScreenTimerManager.refreshWeeklyUsage(context)
-        StartupReminderManager.ensureLoaded(context)
-    }
-
-    val elapsedSeconds by VisualScreenTimerManager.elapsedSecondsFlow.collectAsState()
     val weeklyUsage by VisualScreenTimerManager.weeklyUsageFlow.collectAsState()
     val reminderText by StartupReminderManager.reminderTextFlow.collectAsState()
-
-    // Refresh weekly usage whenever elapsedSeconds changes
-    LaunchedEffect(elapsedSeconds) {
-        if (weeklyUsage.isEmpty() || elapsedSeconds % 2L == 0L) {
-            VisualScreenTimerManager.refreshWeeklyUsage(context)
-        }
-    }
 
     var selectedDayIndex by remember(weeklyUsage.size) {
         mutableIntStateOf((weeklyUsage.size - 1).coerceAtLeast(0))
@@ -124,14 +113,25 @@ fun UsageDashboardScreen(
     var selectedAnalyticsType by remember { mutableStateOf(WatchEntityType.CHANNEL) }
     var sortLeastFirst by remember { mutableStateOf(false) }
 
-    val entityAnalyticsMap = remember(allSavedVideos, allPlaylists, allGroups, allChannels, elapsedSeconds / 3L) {
-        VisualScreenTimerManager.computeEntityWatchAnalytics(
-            context = context,
-            allSavedVideos = allSavedVideos,
-            allPlaylists = allPlaylists,
-            allGroups = allGroups,
-            allChannels = allChannels
-        )
+    var entityAnalyticsMap by remember {
+        mutableStateOf<Map<WatchEntityType, CategoryMostLeastSummary>>(emptyMap())
+    }
+
+    // Initialize and compute analytics on background thread (NEVER blocks Main UI thread!)
+    LaunchedEffect(allSavedVideos.size, allPlaylists.size, allGroups.size, allChannels.size) {
+        withContext(Dispatchers.Default) {
+            VisualScreenTimerManager.ensureInitialized(context)
+            VisualScreenTimerManager.refreshWeeklyUsage(context)
+            StartupReminderManager.ensureLoaded(context)
+            val computed = VisualScreenTimerManager.computeEntityWatchAnalytics(
+                context = context,
+                allSavedVideos = allSavedVideos,
+                allPlaylists = allPlaylists,
+                allGroups = allGroups,
+                allChannels = allChannels
+            )
+            entityAnalyticsMap = computed
+        }
     }
 
     val totalWeeklyGreen = remember(weeklyUsage) { weeklyUsage.sumOf { it.greenSeconds } }
@@ -142,21 +142,31 @@ fun UsageDashboardScreen(
     }
 
     val greenPct = remember(totalWeeklyGreen, totalWeeklyAll) {
-        if (totalWeeklyAll > 0L) ((totalWeeklyGreen * 100.0) / totalWeeklyAll).roundToInt() else 100
+        if (totalWeeklyAll > 0L) ((totalWeeklyGreen * 100.0) / totalWeeklyAll).roundToInt().coerceIn(0, 100) else 100
     }
     val yellowPct = remember(totalWeeklyYellow, totalWeeklyAll) {
-        if (totalWeeklyAll > 0L) ((totalWeeklyYellow * 100.0) / totalWeeklyAll).roundToInt() else 0
+        if (totalWeeklyAll > 0L) ((totalWeeklyYellow * 100.0) / totalWeeklyAll).roundToInt().coerceIn(0, 100) else 0
     }
-    val redPct = remember(totalWeeklyRed, totalWeeklyAll) {
+    val redPct = remember(totalWeeklyRed, totalWeeklyAll, greenPct, yellowPct) {
         if (totalWeeklyAll > 0L) (100 - greenPct - yellowPct).coerceIn(0, 100) else 0
     }
 
-    val uniqueVideos = remember(allSavedVideos) { allSavedVideos.distinctBy { it.videoId } }
-    val completedVideosCount = remember(uniqueVideos) { uniqueVideos.count { it.isCompleted } }
-    val videosWithNotesCount = remember(uniqueVideos) { uniqueVideos.count { it.notes.isNotBlank() } }
+    var uniqueVideosCount by remember { mutableIntStateOf(0) }
+    var completedVideosCount by remember { mutableIntStateOf(0) }
+    var videosWithNotesCount by remember { mutableIntStateOf(0) }
 
-    val currentPalette = remember(elapsedSeconds) {
-        VisualScreenTimerManager.getPaletteForSeconds(elapsedSeconds)
+    LaunchedEffect(allSavedVideos.size) {
+        withContext(Dispatchers.Default) {
+            val unique = allSavedVideos.distinctBy { it.videoId }
+            uniqueVideosCount = unique.size
+            completedVideosCount = unique.count { it.isCompleted }
+            videosWithNotesCount = unique.count { it.notes.isNotBlank() }
+        }
+    }
+
+    val currentPalette = remember(totalWeeklyAll) {
+        val todaySec = weeklyUsage.lastOrNull()?.totalSeconds ?: 0L
+        VisualScreenTimerManager.getPaletteForSeconds(todaySec)
     }
 
     Column(
@@ -166,16 +176,23 @@ fun UsageDashboardScreen(
             .testTag("usage_dashboard_screen")
     ) {
         TopAppBar(
+            windowInsets = WindowInsets(0, 0, 0, 0),
             title = {
                 Column {
                     Text(
                         text = "Focus & Usage Dashboard",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+                        style = MaterialTheme.typography.titleMedium,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "पिछले 7 दिनों का Green • Yellow • Red ज़ोन विश्लेषण",
+                        text = "Past 7 Days Green • Yellow • Red Zone Analysis",
                         style = MaterialTheme.typography.bodySmall,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -229,11 +246,65 @@ fun UsageDashboardScreen(
             onOpenReminderScreen = onOpenStartupReminderScreen
         )
 
+        var showSecurityDialog by remember { mutableStateOf(false) }
+        val isAppLockEnabled by com.example.ui.components.BiometricAppLockManager.isLockEnabledFlow.collectAsState()
+        val isAiFilterEnabled by com.example.ui.components.BiometricAppLockManager.isAiFilterEnabledFlow.collectAsState()
+
+        if (showSecurityDialog) {
+            com.example.ui.components.BiometricAndAiSecurityDialog(
+                onDismiss = { showSecurityDialog = false }
+            )
+        }
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 96.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // === 0. BIOMETRIC APP LOCK & GEMINI AI CONTENT SHIELD CARD ===
+            item(key = "biometric_and_ai_shield_card") {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showSecurityDialog = true }
+                        .testTag("dashboard_security_and_ai_card"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "🔒 Biometric App Lock & ✨ Gemini AI Shield",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = "Fingerprint Lock: ${if (isAppLockEnabled) "ON (Paytm/PhonePe Mode)" else "OFF"} • AI Content Verifier: ${if (isAiFilterEnabled) "ON" else "OFF"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        FilledTonalButton(
+                            onClick = { showSecurityDialog = true },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            modifier = Modifier.testTag("dashboard_configure_security_button")
+                        ) {
+                            Text("Configure", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
             // === 1. WEEKLY TOTAL & 3-ZONE DONUT BREAKDOWN CARD ===
             item(key = "weekly_summary_hero_card") {
                 Card(
@@ -258,20 +329,28 @@ fun UsageDashboardScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
+                            ) {
                                 Text(
-                                    text = "📊 पिछले 7 दिनों का कुल ऐप समय (Weekly Total)",
-                                    fontSize = 12.sp,
+                                    text = "📊 Total Time (Past 7 Days)",
+                                    fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF90CAF9)
+                                    color = Color(0xFF90CAF9),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
                                     text = VisualScreenTimerManager.formatDurationHms(totalWeeklyAll),
                                     fontFamily = FontFamily.Monospace,
-                                    fontSize = 26.sp,
+                                    fontSize = 24.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = Color.White,
+                                    maxLines = 1,
+                                    softWrap = false,
                                     modifier = Modifier.testTag("weekly_total_time_text")
                                 )
                             }
@@ -287,29 +366,31 @@ fun UsageDashboardScreen(
                             ) {
                                 Text(
                                     text = currentPalette.zoneShortBadge,
-                                    fontSize = 11.sp,
+                                    fontSize = 10.5.sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     color = currentPalette.textColor,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
 
                         // Donut Ring + 3 Zone Breakdown Legend
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             // Multi-Segment Donut Chart
                             Box(
                                 contentAlignment = Alignment.Center,
-                                modifier = Modifier.size(116.dp)
+                                modifier = Modifier.size(94.dp)
                             ) {
-                                Canvas(modifier = Modifier.size(104.dp)) {
-                                    val stroke = Stroke(width = 14.dp.toPx(), cap = StrokeCap.Butt)
+                                Canvas(modifier = Modifier.size(84.dp)) {
+                                    val stroke = Stroke(width = 11.5.dp.toPx(), cap = StrokeCap.Butt)
                                     val total = max(1L, totalWeeklyAll).toFloat()
                                     val gSweep = (totalWeeklyGreen / total) * 360f
                                     val ySweep = (totalWeeklyYellow / total) * 360f
@@ -359,13 +440,13 @@ fun UsageDashboardScreen(
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
                                         text = "$greenPct%",
-                                        fontSize = 18.sp,
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.ExtraBold,
                                         color = Color(0xFF00E676)
                                     )
                                     Text(
                                         text = "Safe Focus",
-                                        fontSize = 9.sp,
+                                        fontSize = 8.5.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = Color(0xFFB0BEC5)
                                     )
@@ -375,12 +456,12 @@ fun UsageDashboardScreen(
                             // 3 Zone Cards (Green, Yellow, Red)
                             Column(
                                 modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(7.dp)
                             ) {
                                 ZoneStatRow(
                                     dotColor = Color(0xFF00E676),
                                     bgColor = Color(0xFF062312),
-                                    label = "🟢 Green Zone (0–40m)",
+                                    label = "🟢 Green (0–40m)",
                                     durationText = VisualScreenTimerManager.formatDurationCompact(totalWeeklyGreen),
                                     pctText = "$greenPct%",
                                     testTag = "weekly_green_zone_stat"
@@ -388,7 +469,7 @@ fun UsageDashboardScreen(
                                 ZoneStatRow(
                                     dotColor = Color(0xFFFFEA00),
                                     bgColor = Color(0xFF2B2103),
-                                    label = "🟡 Yellow Zone (40m–2h)",
+                                    label = "🟡 Yellow (40m–2h)",
                                     durationText = VisualScreenTimerManager.formatDurationCompact(totalWeeklyYellow),
                                     pctText = "$yellowPct%",
                                     testTag = "weekly_yellow_zone_stat"
@@ -396,7 +477,7 @@ fun UsageDashboardScreen(
                                 ZoneStatRow(
                                     dotColor = Color(0xFFFF1744),
                                     bgColor = Color(0xFF3A040C),
-                                    label = "🔴 Red Danger (2h+)",
+                                    label = "🔴 Red (2h+)",
                                     durationText = VisualScreenTimerManager.formatDurationCompact(totalWeeklyRed),
                                     pctText = "$redPct%",
                                     testTag = "weekly_red_zone_stat"
@@ -418,12 +499,12 @@ fun UsageDashboardScreen(
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            text = "📅 पिछले 7 दिनों का डेली ज़ोन ग्राफ (Past 7 Days Breakdown)",
+                            text = "📅 Daily Zone Breakdown (Past 7 Days)",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.ExtraBold
                         )
                         Text(
-                            text = "किसी भी दिन के बार पर टैप करके उस दिन का Green, Yellow और Red समय देखें",
+                            text = "Tap any day's bar to view Green, Yellow, and Red zone duration",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -471,8 +552,8 @@ fun UsageDashboardScreen(
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                                             .border(
-                                                width = if (isSelected) 1.5.dp else 0.dp,
-                                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                width = if (isSelected) 1.5.dp else 0.5.dp,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
                                                 shape = RoundedCornerShape(6.dp)
                                             ),
                                         contentAlignment = Alignment.BottomCenter
@@ -480,6 +561,7 @@ fun UsageDashboardScreen(
                                         Canvas(modifier = Modifier.fillMaxSize()) {
                                             val fullH = size.height
                                             val w = size.width
+                                            if (fullH <= 1f || w <= 1f) return@Canvas
                                             val maxSec = maxDaySeconds.toFloat()
 
                                             val gH = ((day.greenSeconds / maxSec) * fullH).coerceAtLeast(if (day.greenSeconds > 0) 4.dp.toPx() else 0f)
@@ -518,7 +600,7 @@ fun UsageDashboardScreen(
 
                                     Spacer(modifier = Modifier.height(5.dp))
                                     Text(
-                                        text = if (day.isToday) "आज" else day.dayShortLabel.take(3),
+                                        text = if (day.isToday) "Today" else day.dayShortLabel.take(3),
                                         fontSize = 10.sp,
                                         fontWeight = if (day.isToday || isSelected) FontWeight.ExtraBold else FontWeight.Normal,
                                         color = if (day.isToday) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurface
@@ -543,7 +625,7 @@ fun UsageDashboardScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "${selDay.dayShortLabel} (${selDay.dateDisplayLabel}): कुल ${VisualScreenTimerManager.formatDurationCompact(selDay.totalSeconds)}",
+                                        text = "${selDay.dayShortLabel} (${selDay.dateDisplayLabel}): Total ${VisualScreenTimerManager.formatDurationCompact(selDay.totalSeconds)}",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -607,7 +689,7 @@ fun UsageDashboardScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "📌 ऐप खुलते ही दिखने वाला फुल-स्क्रीन रिमाइंडर",
+                                text = "📌 Full-Screen Startup Goal Reminder",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = Color(0xFF00E676)
@@ -623,7 +705,7 @@ fun UsageDashboardScreen(
                             ) {
                                 Icon(imageVector = Icons.Default.EditNote, contentDescription = null, modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("फुल स्क्रीन में खोलें / लिखें", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("Open / Edit Full Screen", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
@@ -642,7 +724,7 @@ fun UsageDashboardScreen(
             // === 4. DAY-BY-DAY DETAILED LOG (PAST 7 DAYS) ===
             item(key = "daily_log_header") {
                 Text(
-                    text = "🗓️ दिन-प्रतिदिन का ज़ोन रिकॉर्ड (Past 7 Days Log)",
+                    text = "🗓️ Day-by-Day Zone Log (Past 7 Days)",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.ExtraBold
                 )
@@ -666,7 +748,7 @@ fun UsageDashboardScreen(
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text(
-                            text = "📚 आपकी पढ़ाई और फोकस लाइब्रेरी",
+                            text = "📚 Your Study & Focus Library",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
@@ -675,18 +757,18 @@ fun UsageDashboardScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("📁 ग्रुप्स: $groupsCount", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Text("📺 चैनल्स: $channelsCount", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Text("🎵 प्लेलिस्ट: $playlistsCount", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("📁 Groups: $groupsCount", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("📺 Channels: $channelsCount", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("🎵 Playlists: $playlistsCount", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("🎬 सेव वीडियो: ${uniqueVideos.size}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Text("✅ पूरे देखे गए: $completedVideosCount", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                            Text("📝 सीन नोट्स: $videosWithNotesCount", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("🎬 Saved Videos: $uniqueVideosCount", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("✅ Completed: $completedVideosCount", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("📝 Scene Notes: $videosWithNotesCount", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -715,25 +797,28 @@ private fun ZoneStatRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = label,
-                fontSize = 11.sp,
+                fontSize = 10.5.sp,
                 fontWeight = FontWeight.Bold,
                 color = dotColor,
                 maxLines = 1,
+                softWrap = false,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = "$durationText ($pctText)",
                 fontFamily = FontFamily.Monospace,
-                fontSize = 11.sp,
+                fontSize = 10.5.sp,
                 fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                softWrap = false,
                 color = Color.White
             )
         }
@@ -766,7 +851,7 @@ private fun DailyUsageBreakdownRow(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "कुल समय: ${VisualScreenTimerManager.formatDurationHms(day.totalSeconds)}",
+                    text = "Total Time: ${VisualScreenTimerManager.formatDurationHms(day.totalSeconds)}",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -848,14 +933,14 @@ private fun EntityMostLeastTimeAnalyticsCard(
             // Section Header
             Column {
                 Text(
-                    text = "📈 सबसे ज़्यादा vs सबसे कम टाइम स्पेंड एनालिटिक्स",
+                    text = "📈 Most vs Least Time Spent Analytics",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.ExtraBold,
                     color = Color(0xFF81D4FA)
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "किस YouTube चैनल, प्लेलिस्ट और ग्रुप पर सबसे ज़्यादा और सबसे कम समय बिताया गया है:",
+                    text = "See which YouTube Channel, Playlist, and Group has the most vs least watch time:",
                     fontSize = 11.sp,
                     color = Color(0xFFB0BEC5)
                 )
@@ -863,7 +948,7 @@ private fun EntityMostLeastTimeAnalyticsCard(
 
             // 3-Row Most vs Least Comparison Grid (1. Channel, 2. Playlist, 3. Group)
             MostVsLeastComparisonRow(
-                categoryLabel = "📺 YouTube चैनल",
+                categoryLabel = "📺 YouTube Channel",
                 mostItem = channelSummary?.mostSpent,
                 leastItem = channelSummary?.leastSpent,
                 isSelected = selectedType == WatchEntityType.CHANNEL,
@@ -871,7 +956,7 @@ private fun EntityMostLeastTimeAnalyticsCard(
                 testTagPrefix = "analytics_summary_channel"
             )
             MostVsLeastComparisonRow(
-                categoryLabel = "🎵 प्लेलिस्ट (Playlist)",
+                categoryLabel = "🎵 Playlist",
                 mostItem = playlistSummary?.mostSpent,
                 leastItem = playlistSummary?.leastSpent,
                 isSelected = selectedType == WatchEntityType.PLAYLIST,
@@ -879,7 +964,7 @@ private fun EntityMostLeastTimeAnalyticsCard(
                 testTagPrefix = "analytics_summary_playlist"
             )
             MostVsLeastComparisonRow(
-                categoryLabel = "📁 चैनल ग्रुप (Group)",
+                categoryLabel = "📁 Channel Group",
                 mostItem = groupSummary?.mostSpent,
                 leastItem = groupSummary?.leastSpent,
                 isSelected = selectedType == WatchEntityType.GROUP,
@@ -895,19 +980,19 @@ private fun EntityMostLeastTimeAnalyticsCard(
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AnalyticsCategoryTabPill(
-                        label = "📺 चैनल्स (${channelSummary?.rankedAll?.size ?: 0})",
+                        label = "📺 Channels (${channelSummary?.rankedAll?.size ?: 0})",
                         selected = selectedType == WatchEntityType.CHANNEL,
                         onClick = { onSelectType(WatchEntityType.CHANNEL) },
                         testTag = "analytics_tab_channels"
                     )
                     AnalyticsCategoryTabPill(
-                        label = "🎵 प्लेलिस्ट (${playlistSummary?.rankedAll?.size ?: 0})",
+                        label = "🎵 Playlists (${playlistSummary?.rankedAll?.size ?: 0})",
                         selected = selectedType == WatchEntityType.PLAYLIST,
                         onClick = { onSelectType(WatchEntityType.PLAYLIST) },
                         testTag = "analytics_tab_playlists"
                     )
                     AnalyticsCategoryTabPill(
-                        label = "📁 ग्रुप्स (${groupSummary?.rankedAll?.size ?: 0})",
+                        label = "📁 Groups (${groupSummary?.rankedAll?.size ?: 0})",
                         selected = selectedType == WatchEntityType.GROUP,
                         onClick = { onSelectType(WatchEntityType.GROUP) },
                         testTag = "analytics_tab_groups"
@@ -922,7 +1007,7 @@ private fun EntityMostLeastTimeAnalyticsCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${activeSummary?.categoryTitleHindi.orEmpty()} का पूरा टाइम डेटा:",
+                    text = "${activeSummary?.categoryTitleHindi.orEmpty()} Time Breakdown:",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFFCFD8DC)
@@ -935,7 +1020,7 @@ private fun EntityMostLeastTimeAnalyticsCard(
                         .testTag("analytics_sort_order_toggle")
                 ) {
                     Text(
-                        text = if (sortLeastFirst) "❄️ कम से ज़्यादा (Least First) ⇅" else "🔥 ज़्यादा से कम (Most First) ⇅",
+                        text = if (sortLeastFirst) "❄️ Least First ⇅" else "🔥 Most First ⇅",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (sortLeastFirst) Color(0xFF80DEEA) else Color(0xFFFFB74D),
@@ -959,7 +1044,7 @@ private fun EntityMostLeastTimeAnalyticsCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = "इस सेक्शन में अभी कोई डेटा उपलब्ध नहीं है। जैसे ही आप चैनल, प्लेलिस्ट या ग्रुप जोड़ेंगे, यहाँ सबसे ज़्यादा और सबसे कम टाइम स्पेंड का पूरा विश्लेषण दिखेगा।",
+                        text = "No watch data in this category yet. As you add channels, playlists, or groups and watch videos, full Most vs Least analytics will appear here.",
                         fontSize = 11.sp,
                         color = Color(0xFFB0BEC5),
                         modifier = Modifier.padding(12.dp)
@@ -1005,8 +1090,8 @@ private fun EntityMostLeastTimeAnalyticsCard(
                                         ) {
                                             Text(
                                                 text = when {
-                                                    isMost -> "🔥 सर्वाधिक (MOST)"
-                                                    isLeast -> "❄️ न्यूनतम (LEAST)"
+                                                    isMost -> "🔥 MOST"
+                                                    isLeast -> "❄️ LEAST"
                                                     else -> "#${idx + 1}"
                                                 },
                                                 fontSize = 9.sp,
@@ -1107,7 +1192,7 @@ private fun MostVsLeastComparisonRow(
                     color = Color(0xFF81D4FA)
                 )
                 Text(
-                    text = "विस्तार से देखें ➔",
+                    text = "View Details ➔",
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF90CAF9)
@@ -1129,7 +1214,7 @@ private fun MostVsLeastComparisonRow(
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                         Text(
-                            text = "🔥 सबसे ज़्यादा टाइम",
+                            text = "🔥 Most Time",
                             fontSize = 9.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color(0xFF00E676)
@@ -1166,7 +1251,7 @@ private fun MostVsLeastComparisonRow(
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                         Text(
-                            text = "❄️ सबसे कम टाइम",
+                            text = "❄️ Least Time",
                             fontSize = 9.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color(0xFFFF8A80)

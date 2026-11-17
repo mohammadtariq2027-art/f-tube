@@ -79,9 +79,9 @@ object NightlySyncScheduler {
 
                 val nowStr = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date())
                 val syncStatus = if (pushedToYouTubeCount > 0) {
-                    "✓ सिंक संपन्न ($nowStr) • $pushedToYouTubeCount वीडियो असली YouTube प्लेलिस्ट में सेव हुए"
+                    "✓ Sync complete ($nowStr) • $pushedToYouTubeCount videos saved to real YouTube playlist"
                 } else {
-                    "🌙 ऑटो-सिंक व बैकअप संपन्न: $nowStr"
+                    "🌙 Auto-sync & backup complete: $nowStr"
                 }
                 accountManager.updateLastSyncTime(syncStatus)
 
@@ -89,7 +89,7 @@ object NightlySyncScheduler {
                 onComplete?.invoke(syncStatus)
             } catch (e: Exception) {
                 Log.w(TAG, "Nightly sync error: ${e.message}")
-                onComplete?.invoke("सिंक में त्रुटि: ${e.localizedMessage ?: "पुनः प्रयास करें"}")
+                onComplete?.invoke("Sync error: ${e.localizedMessage ?: "Please try again"}")
             }
         }
     }

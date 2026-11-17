@@ -374,11 +374,11 @@ object AiSmartSearchEngine {
             // 1. Direct Substring or Phonetic Substring Match
             if (videoCorpus.contains(queryLower) || (queryPhonetic.length >= 3 && videoPhonetic.contains(queryPhonetic))) {
                 videoScore += 1.0
-                reason = "✨ सटीक वीडियो मैच"
+                reason = "✨ Exact Video Match"
             }
             if (noteCorpus.isNotBlank() && (noteCorpus.contains(queryLower) || (queryPhonetic.length >= 3 && notePhonetic.contains(queryPhonetic)))) {
                 noteScore += 1.15
-                reason = "✨ आपके लिखे नोट में मिला"
+                reason = "✨ Found in Your Note"
             }
 
             // 2. Approximate Timestamp Match (e.g. "6:02", "6 min", "6 मिनट")
@@ -389,13 +389,13 @@ object AiSmartSearchEngine {
                     if (diff == 0) {
                         noteScore = max(noteScore, 1.3)
                         matchedSceneNotes.add(entry to 1.5)
-                        reason = "✨ सीन टाइम [${entry.timestampLabel}] से सीधा मैच"
+                        reason = "✨ Direct Scene Time Match [${entry.timestampLabel}]"
                     } else if (diff <= 45) {
                         val proximityBoost = 0.95 - (diff.toDouble() / 90.0)
                         noteScore = max(noteScore, proximityBoost)
                         matchedSceneNotes.add(entry to proximityBoost + 0.3)
                         if (reason.isBlank()) {
-                            reason = "✨ AI Time Match: ~${entry.timestampLabel} के आस-पास का सीन"
+                            reason = "✨ AI Time Match: Scene near ~${entry.timestampLabel}"
                         }
                     }
                 }
@@ -464,13 +464,13 @@ object AiSmartSearchEngine {
                 if (videoPartialBoost > videoScore) {
                     videoScore = videoPartialBoost
                     if (reason.isBlank()) {
-                        reason = if (usedSynonymOrFuzzyInVideo) "🧠 AI Smart Match: मिलते-जुलते अर्थ/विषय से मिला" else "✨ वीडियो के शब्दों से मिला"
+                        reason = if (usedSynonymOrFuzzyInVideo) "🧠 AI Smart Match: Semantic / Topic Match" else "✨ Matched Video Keywords"
                     }
                 }
                 if (notePartialBoost > noteScore) {
                     noteScore = notePartialBoost
                     if (reason.isBlank() || noteScore >= videoScore) {
-                        reason = if (usedSynonymOrFuzzyInNote) "🧠 AI Note Match: आपके नोट के भाव/अर्थ से मिला" else "📝 आपके नोट के शब्दों से मिला"
+                        reason = if (usedSynonymOrFuzzyInNote) "🧠 AI Note Match: Semantic Note Match" else "📝 Matched Note Keywords"
                     }
                 }
             }

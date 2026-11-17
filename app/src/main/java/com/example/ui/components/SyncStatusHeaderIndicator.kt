@@ -161,216 +161,222 @@ fun AppHeaderSyncStatusBar(
     onOpenBackupRestoreDialog: () -> Unit = {},
     onOpenReminderScreen: (() -> Unit)? = null,
     onOpenDashboardTab: (() -> Unit)? = null,
+    showVisibleSyncStrip: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var showDetailsDialog by remember { mutableStateOf(false) }
 
-    val summary = rememberSyncHealthSummary(
-        userProfile = userProfile,
-        isSyncing = isSyncing,
-        isBackupInProgress = isBackupInProgress,
-        lastBackupTimestamp = lastBackupTimestamp,
-        allSavedVideos = allSavedVideos,
-        groupsCount = groupsCount,
-        playlistsCount = playlistsCount
-    )
-
-    val containerBgColor = when (summary.level) {
-        SyncHealthLevel.SYNCING -> Color(0xFFE3F2FD)
-        SyncHealthLevel.CLOUD_FULL_HEALTHY -> Color(0xFFE8F5E9)
-        SyncHealthLevel.YOUTUBE_AND_LOCAL_HEALTHY -> Color(0xFFE0F2F1)
-        SyncHealthLevel.LOCAL_AUTO_BACKUP_SAFE -> Color(0xFFF1F8E9)
-    }
-
-    val borderColor = when (summary.level) {
-        SyncHealthLevel.SYNCING -> Color(0xFF1976D2).copy(alpha = 0.35f)
-        SyncHealthLevel.CLOUD_FULL_HEALTHY -> Color(0xFF2E7D32).copy(alpha = 0.35f)
-        SyncHealthLevel.YOUTUBE_AND_LOCAL_HEALTHY -> Color(0xFF00695C).copy(alpha = 0.35f)
-        SyncHealthLevel.LOCAL_AUTO_BACKUP_SAFE -> Color(0xFF558B2F).copy(alpha = 0.35f)
-    }
-
-    val primaryAccentColor = when (summary.level) {
-        SyncHealthLevel.SYNCING -> Color(0xFF1565C0)
-        SyncHealthLevel.CLOUD_FULL_HEALTHY -> Color(0xFF1B5E20)
-        SyncHealthLevel.YOUTUBE_AND_LOCAL_HEALTHY -> Color(0xFF004D40)
-        SyncHealthLevel.LOCAL_AUTO_BACKUP_SAFE -> Color(0xFF33691E)
-    }
-
     Column(modifier = modifier.fillMaxWidth()) {
-        // Persistent Glowing Visual App Timer Banner (Green 0-40m -> Yellow 40m-1.5h -> Red 2h+ Danger)
+        // Persistent Glowing Visual App Timer Banner on the App Screen (Green 0-40m -> Yellow 40m-1.5h -> Red 2h+ Danger)
         AppHeaderVisualTimerBanner(
             onOpenReminderScreen = onOpenReminderScreen,
             onOpenDashboardTab = onOpenDashboardTab
         )
 
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { showDetailsDialog = true }
-                .testTag("header_sync_status_indicator"),
-            color = containerBgColor,
-            tonalElevation = 2.dp
-        ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(width = 0.5.dp, color = borderColor)
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            // Left: Overall Sync Health Indicator + Last Backup Timestamp
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
-            ) {
-                // Status Dot / Spinner
-                if (summary.level == SyncHealthLevel.SYNCING) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        strokeWidth = 2.dp,
-                        color = primaryAccentColor
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(9.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF2E7D32))
-                    )
-                }
+        if (showVisibleSyncStrip) {
+            val summary = rememberSyncHealthSummary(
+                userProfile = userProfile,
+                isSyncing = isSyncing,
+                isBackupInProgress = isBackupInProgress,
+                lastBackupTimestamp = lastBackupTimestamp,
+                allSavedVideos = allSavedVideos,
+                groupsCount = groupsCount,
+                playlistsCount = playlistsCount
+            )
 
-                Spacer(modifier = Modifier.width(6.dp))
-
-                Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Text(
-                            text = when (summary.level) {
-                                SyncHealthLevel.SYNCING -> "🔄 Syncing & Backing Up..."
-                                SyncHealthLevel.CLOUD_FULL_HEALTHY -> "🛡️ Cloud & Local Safe"
-                                SyncHealthLevel.YOUTUBE_AND_LOCAL_HEALTHY -> "🛡️ Data Safe & Synced"
-                                SyncHealthLevel.LOCAL_AUTO_BACKUP_SAFE -> "🛡️ Auto-Backup Safe"
-                            },
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = primaryAccentColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.testTag("header_sync_health_badge")
-                        )
-
-                        Text(
-                            text = "•",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = primaryAccentColor.copy(alpha = 0.6f)
-                        )
-
-                        Text(
-                            text = "💾 Backup: ${summary.lastBackupTimestamp}",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF263238),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.testTag("header_last_backup_timestamp")
-                        )
-                    }
-                }
+            val containerBgColor = when (summary.level) {
+                SyncHealthLevel.SYNCING -> Color(0xFFE3F2FD)
+                SyncHealthLevel.CLOUD_FULL_HEALTHY -> Color(0xFFE8F5E9)
+                SyncHealthLevel.YOUTUBE_AND_LOCAL_HEALTHY -> Color(0xFFE0F2F1)
+                SyncHealthLevel.LOCAL_AUTO_BACKUP_SAFE -> Color(0xFFF1F8E9)
             }
 
-            Spacer(modifier = Modifier.width(6.dp))
+            val borderColor = when (summary.level) {
+                SyncHealthLevel.SYNCING -> Color(0xFF1976D2).copy(alpha = 0.35f)
+                SyncHealthLevel.CLOUD_FULL_HEALTHY -> Color(0xFF2E7D32).copy(alpha = 0.35f)
+                SyncHealthLevel.YOUTUBE_AND_LOCAL_HEALTHY -> Color(0xFF00695C).copy(alpha = 0.35f)
+                SyncHealthLevel.LOCAL_AUTO_BACKUP_SAFE -> Color(0xFF558B2F).copy(alpha = 0.35f)
+            }
 
-            // Right: YouTube Health Pill + Google Drive Health Pill + Instant Refresh Icon
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            val primaryAccentColor = when (summary.level) {
+                SyncHealthLevel.SYNCING -> Color(0xFF1565C0)
+                SyncHealthLevel.CLOUD_FULL_HEALTHY -> Color(0xFF1B5E20)
+                SyncHealthLevel.YOUTUBE_AND_LOCAL_HEALTHY -> Color(0xFF004D40)
+                SyncHealthLevel.LOCAL_AUTO_BACKUP_SAFE -> Color(0xFF33691E)
+            }
+
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showDetailsDialog = true }
+                    .testTag("header_sync_status_indicator"),
+                color = containerBgColor,
+                tonalElevation = 2.dp
             ) {
-                // YouTube Sync Health Pill
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = if (summary.isYouTubeHealthy) Color(0xFF2E7D32).copy(alpha = 0.14f)
-                    else Color(0xFFE65100).copy(alpha = 0.12f),
-                    modifier = Modifier.testTag("header_youtube_sync_health_badge")
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(5.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (summary.isYouTubeHealthy) Color(0xFF2E7D32) else Color(0xFFEF6C00)
-                                )
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = if (summary.isYouTubeHealthy) "YT ✓" else "YT Sync",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (summary.isYouTubeHealthy) Color(0xFF1B5E20) else Color(0xFFE65100)
-                        )
-                    }
-                }
-
-                // Google Drive / Cloud Backup Health Pill
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = if (summary.isDriveLinked) Color(0xFF1565C0).copy(alpha = 0.14f)
-                    else Color(0xFF00695C).copy(alpha = 0.14f),
-                    modifier = Modifier.testTag("header_drive_sync_health_badge")
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (summary.isDriveLinked) Icons.Default.CloudDone else Icons.Default.Security,
-                            contentDescription = null,
-                            tint = if (summary.isDriveLinked) Color(0xFF0D47A1) else Color(0xFF004D40),
-                            modifier = Modifier.size(10.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = if (summary.isDriveLinked) "Drive ✓" else "Safe ✓",
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (summary.isDriveLinked) Color(0xFF0D47A1) else Color(0xFF004D40)
-                        )
-                    }
-                }
-
-                // 1-Tap Quick Backup & Sync trigger
-                Surface(
-                    shape = CircleShape,
-                    color = primaryAccentColor.copy(alpha = 0.12f),
+                Row(
                     modifier = Modifier
-                        .size(22.dp)
-                        .clickable(enabled = summary.level != SyncHealthLevel.SYNCING) {
-                            onTriggerSyncAndBackupNow()
-                        }
-                        .testTag("header_quick_sync_now_button")
+                        .fillMaxWidth()
+                        .border(width = 0.5.dp, color = borderColor)
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Sync and Backup Now",
-                            tint = primaryAccentColor,
-                            modifier = Modifier.size(13.dp)
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (summary.level == SyncHealthLevel.SYNCING) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp,
+                                color = primaryAccentColor
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(9.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF2E7D32))
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Text(
+                                    text = when (summary.level) {
+                                        SyncHealthLevel.SYNCING -> "🔄 Syncing & Backing Up..."
+                                        SyncHealthLevel.CLOUD_FULL_HEALTHY -> "🛡️ Cloud & Local Safe"
+                                        SyncHealthLevel.YOUTUBE_AND_LOCAL_HEALTHY -> "🛡️ Data Safe & Synced"
+                                        SyncHealthLevel.LOCAL_AUTO_BACKUP_SAFE -> "🛡️ Auto-Backup Safe"
+                                    },
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = primaryAccentColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.testTag("header_sync_health_badge")
+                                )
+
+                                Text(
+                                    text = "•",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = primaryAccentColor.copy(alpha = 0.6f)
+                                )
+
+                                Text(
+                                    text = "💾 Backup: ${summary.lastBackupTimestamp}",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF263238),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.testTag("header_last_backup_timestamp")
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (summary.isYouTubeHealthy) Color(0xFF2E7D32).copy(alpha = 0.14f)
+                            else Color(0xFFE65100).copy(alpha = 0.12f),
+                            modifier = Modifier.testTag("header_youtube_sync_health_badge")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(5.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (summary.isYouTubeHealthy) Color(0xFF2E7D32) else Color(0xFFEF6C00)
+                                        )
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = if (summary.isYouTubeHealthy) "YT ✓" else "YT Sync",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (summary.isYouTubeHealthy) Color(0xFF1B5E20) else Color(0xFFE65100)
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (summary.isDriveLinked) Color(0xFF1565C0).copy(alpha = 0.14f)
+                            else Color(0xFF00695C).copy(alpha = 0.14f),
+                            modifier = Modifier.testTag("header_drive_sync_health_badge")
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (summary.isDriveLinked) Icons.Default.CloudDone else Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = if (summary.isDriveLinked) Color(0xFF0D47A1) else Color(0xFF004D40),
+                                    modifier = Modifier.size(10.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = if (summary.isDriveLinked) "Drive ✓" else "Safe ✓",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (summary.isDriveLinked) Color(0xFF0D47A1) else Color(0xFF004D40)
+                                )
+                            }
+                        }
+
+                        Surface(
+                            shape = CircleShape,
+                            color = primaryAccentColor.copy(alpha = 0.12f),
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clickable(enabled = summary.level != SyncHealthLevel.SYNCING) {
+                                    onTriggerSyncAndBackupNow()
+                                }
+                                .testTag("header_quick_sync_now_button")
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Sync and Backup Now",
+                                    tint = primaryAccentColor,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
-        }
         }
     }
 
     if (showDetailsDialog) {
+        val summary = rememberSyncHealthSummary(
+            userProfile = userProfile,
+            isSyncing = isSyncing,
+            isBackupInProgress = isBackupInProgress,
+            lastBackupTimestamp = lastBackupTimestamp,
+            allSavedVideos = allSavedVideos,
+            groupsCount = groupsCount,
+            playlistsCount = playlistsCount
+        )
         SyncHealthInspectorDialog(
             userProfile = userProfile,
             summary = summary,
@@ -600,7 +606,7 @@ fun SyncHealthInspectorDialog(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "⚡ Sync & Backup Now (अभी सिंक और बैकअप करें)",
+                            text = "⚡ Sync & Backup Now",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )

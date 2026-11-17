@@ -130,7 +130,7 @@ fun BackupRestoreDialog(
                 if (selectedTab == 0) {
                     // EXPORT TAB
                     Text(
-                        text = "आपके सभी चैनल ग्रुप्स, चैनल्स, प्लेलिस्ट और हर वीडियो के साथ लिंक किए गए नोट्स (Video Notes) रात के ऑटो-बैकअप व इस JSON में सुरक्षित रहते हैं।",
+                        text = "All your channel groups, channels, playlists, and notes linked to each video are safely stored in your nightly auto-backup and this JSON.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -178,7 +178,7 @@ fun BackupRestoreDialog(
                 } else {
                     // IMPORT TAB
                     Text(
-                        text = "यहाँ से बैकअप रीस्टोर करने पर आपके सभी ग्रुप्स, चैनल्स, प्लेलिस्ट और किस वीडियो पर कौन सा नोट लिखा था—सब कुछ उसी वीडियो के साथ वापस जुड़ जाएगा।",
+                        text = "Restoring a backup here will restore all your groups, channels, playlists, and reconnect every note back to its exact video.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -198,7 +198,7 @@ fun BackupRestoreDialog(
                         ) {
                             Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Restore from Auto-Backup File (सुरक्षित बैकअप)")
+                            Text("Restore from Auto-Backup File")
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                     }

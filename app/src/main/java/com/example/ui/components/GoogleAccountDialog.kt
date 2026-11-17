@@ -175,7 +175,7 @@ fun GoogleAccountDialog(
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = if (userProfile.isSignedIn) "Google & YouTube Auto-Save" else "Google अकाउंट लॉगिन",
+                    text = if (userProfile.isSignedIn) "Google & YouTube Auto-Save" else "Google Account Sign-In",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -254,7 +254,7 @@ fun GoogleAccountDialog(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "स्थायी रूप से कनेक्टेड (Official Google Account)",
+                                text = "Permanently Connected (Official Google Account)",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF2E7D32)
@@ -264,7 +264,7 @@ fun GoogleAccountDialog(
                 } else {
                     // === NOT SIGNED-IN STATE (Official System Account Picker Only) ===
                     Text(
-                        text = "अपने फोन में लॉगिन किए हुए असली Google अकाउंट को 1 टैप में चुनें:",
+                        text = "Select your phone's signed-in Google Account in 1 tap:",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -276,11 +276,11 @@ fun GoogleAccountDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
-                            Text("✓ फोन के असली Google Account Picker से लॉगिन", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("✓ Sign in with your phone's Google Account Picker", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text("✓ असली YouTube प्लेलिस्ट में वीडियो ऑटो-सेव", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("✓ Auto-save videos to your real YouTube playlists", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text("✓ रात को वीडियो + नोट्स का Google Drive ऑटो-बैकअप", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("✓ Nightly Google Drive auto-backup of videos + notes", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
 
@@ -303,7 +303,7 @@ fun GoogleAccountDialog(
                     ) {
                         Icon(imageVector = Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("Google अकाउंट चुनें (Sign in with Google) ↗", fontWeight = FontWeight.Bold)
+                        Text("Sign in with Google Account ↗", fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -328,7 +328,7 @@ fun GoogleAccountDialog(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "ओरिजिनल YouTube प्लेलिस्ट Auto-Save",
+                                text = "Original YouTube Playlist Auto-Save",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -336,9 +336,9 @@ fun GoogleAccountDialog(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (isYouTubeAutoSaveActive) {
-                                "✅ सक्रिय! अब आप इस ऐप में किसी भी YouTube प्लेलिस्ट (PL...) में वीडियो सेव करेंगे, तो वह अपने-आप आपके असली YouTube ऐप की ओरिजिनल प्लेलिस्ट में भी तुरंत सेव हो जाएगी।"
+                                "✅ Active! Whenever you save a video to any YouTube playlist (PL...) in FocusTube, it is automatically saved to your original YouTube playlist as well."
                             } else {
-                                "⚠️ केवल Google ईमेल चुनने से YouTube अपनी असली प्लेलिस्ट बदलने की अनुमति नहीं देता। अपनी ओरिजिनल YouTube प्लेलिस्ट में ऑटो-सेव चालू करने के लिए नीचे बटन दबाकर 1 बार YouTube सेशन कनेक्ट करें:"
+                                "⚠️ Connect your YouTube session once below so FocusTube can automatically save videos directly into your original YouTube playlists:"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -359,7 +359,7 @@ fun GoogleAccountDialog(
                             Icon(imageVector = Icons.Default.PlaylistAddCheck, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (isYouTubeAutoSaveActive) "✅ YouTube Auto-Save कनेक्टेड (रीफ्रेश करें)" else "🔗 YouTube ओरिजिनल प्लेलिस्ट Auto-Save चालू करें",
+                                text = if (isYouTubeAutoSaveActive) "✅ YouTube Auto-Save Connected (Refresh)" else "🔗 Enable YouTube Playlist Auto-Save",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -388,7 +388,7 @@ fun GoogleAccountDialog(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Google Drive ऑटो-बैकअप (वीडियो + नोट्स)",
+                                text = "Google Drive Auto-Backup (Videos + Notes)",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -396,9 +396,9 @@ fun GoogleAccountDialog(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = if (isDriveLinked) {
-                                "✓ आपकी Google Drive बैकअप फ़ाइल लिंक है। रोज़ रात को सारे ग्रुप्स, प्लेलिस्ट और हर वीडियो के नोट्स सीधे Google Drive में सेव होते हैं।"
+                                "✓ Your Google Drive backup file is linked. Every night, all groups, playlists, and video notes are automatically backed up to Google Drive."
                             } else {
-                                "अपनी Google Drive में ऑटो-बैकअप फ़ाइल सेट करें ताकि फोन बदलने या ऐप डिलीट होने पर भी सारा डेटा और नोट्स सुरक्षित रहें।"
+                                "Set up an auto-backup file in your Google Drive so all your data and notes stay safe even if you switch phones or reinstall the app."
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -416,7 +416,7 @@ fun GoogleAccountDialog(
                             Icon(imageVector = Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (isDriveLinked) "☁️ Google Drive फ़ाइल बदलें / अपडेट करें" else "☁️ Google Drive में ऑटो-बैकअप सेट करें",
+                                text = if (isDriveLinked) "☁️ Change / Update Google Drive File" else "☁️ Set Up Google Drive Auto-Backup",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -433,7 +433,7 @@ fun GoogleAccountDialog(
                         ) {
                             Icon(imageVector = Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("📂 Google Drive से बैकअप रीस्टोर करें", fontSize = 12.sp)
+                            Text("📂 Restore Backup from Google Drive", fontSize = 12.sp)
                         }
                     }
                 }
@@ -463,7 +463,7 @@ fun GoogleAccountDialog(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "रात को ऑटो-सिंक व बैकअप",
+                                    text = "Nightly Auto-Sync & Backup",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -476,7 +476,7 @@ fun GoogleAccountDialog(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "रोज़ रात को आपकी सभी प्लेलिस्ट, ग्रुप्स, चैनल्स और वीडियो के साथ लिंक किए गए नोट्स ऑटोमैटिक बैकअप व YouTube से सिंक हो जाते हैं।",
+                            text = "Automatically backs up all your playlists, groups, channels, and linked video notes and syncs with YouTube every night.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -507,11 +507,11 @@ fun GoogleAccountDialog(
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("सिंक व बैकअप हो रहा है...")
+                        Text("Syncing & Backing Up...")
                     } else {
                         Icon(imageVector = Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("अभी तुरंत सिंक व बैकअप करें")
+                        Text("Sync & Backup All Now")
                     }
                 }
 
@@ -525,7 +525,7 @@ fun GoogleAccountDialog(
                             contentColor = MaterialTheme.colorScheme.error
                         )
                     ) {
-                        Text("अकाउंट से लॉगआउट करें (Sign Out)")
+                        Text("Sign Out of Google Account")
                     }
                 }
             }
@@ -583,13 +583,13 @@ fun YouTubeAutoSaveLoginDialog(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "YouTube ओरिजिनल प्लेलिस्ट Auto-Save लॉगिन",
+                            text = "YouTube Original Playlist Auto-Save Sign-In",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Text(
-                            text = "सिर्फ 1 बार लॉगिन करें — इसके बाद हर वीडियो अपने-आप YouTube प्लेलिस्ट में सेव होगी",
+                            text = "Sign in once — every saved video will automatically sync to your YouTube playlists",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                         )
@@ -609,6 +609,7 @@ fun YouTubeAutoSaveLoginDialog(
                         .weight(1f),
                     factory = { ctx ->
                         WebView(ctx).apply {
+                            YouTubeSyncHelper.markCookieManagerReady()
                             val cm = CookieManager.getInstance()
                             cm.setAcceptCookie(true)
                             cm.setAcceptThirdPartyCookies(this, true)
@@ -620,7 +621,7 @@ fun YouTubeAutoSaveLoginDialog(
                             webViewClient = object : WebViewClient() {
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     super.onPageStarted(view, url, favicon)
-                                    if (YouTubeSyncHelper.hasYouTubeWebSession()) {
+                                    if (YouTubeSyncHelper.hasYouTubeWebSession(allowColdInit = true)) {
                                         CookieManager.getInstance().flush()
                                         onSessionConnected()
                                     }
@@ -629,7 +630,7 @@ fun YouTubeAutoSaveLoginDialog(
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     CookieManager.getInstance().flush()
-                                    if (YouTubeSyncHelper.hasYouTubeWebSession()) {
+                                    if (YouTubeSyncHelper.hasYouTubeWebSession(allowColdInit = true)) {
                                         onSessionConnected()
                                     }
                                 }

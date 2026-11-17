@@ -281,43 +281,41 @@ object VisualScreenTimerManager {
         } catch (_: Exception) {}
     }
 
-    private fun parseDurationStringToSeconds(rawDuration: String, videoId: String): Long {
-        val cleaned = com.example.util.DurationUtils.formatCleanDuration(rawDuration, videoId).trim()
-        if (cleaned.isBlank()) return 480L // 8 min default estimate when duration string is empty
-        val parts = cleaned.split(":").mapNotNull { it.trim().toLongOrNull() }
-        return when (parts.size) {
-            3 -> parts[0] * 3600L + parts[1] * 60L + parts[2]
-            2 -> parts[0] * 60L + parts[1]
-            1 -> parts[0]
-            else -> 480L
-        }.coerceAtLeast(60L)
-    }
-
-    /**
-     * Estimates engaged watch time for a list of videos when combined with live tracked playback seconds:
-     * - Completed videos count 100% of their duration
-     * - Videos with scene notes count 65% of their duration + 180s per scene note
-     * - Saved/queued videos in the library count a base engagement of 25% of duration
-     */
-    private fun estimateLibraryEngagementSeconds(
-        videos: List<com.example.data.local.entity.VideoEntity>
-    ): Long {
-        val distinct = videos.distinctBy { it.videoId }
-        var total = 0L
-        for (v in distinct) {
-            val dur = parseDurationStringToSeconds(v.duration, v.videoId)
-            val noteLines = v.notes.lines().count { it.isNotBlank() }
-            total += when {
-                v.isCompleted -> dur + (noteLines * 120L)
-                noteLines > 0 -> (dur * 65L) / 100L + (noteLines * 180L)
-                else -> (dur * 22L) / 100L
+    private fun fastParseDurationSeconds(rawDuration: String?): Long {
+        if (rawDuration.isNullOrBlank()) return 480L
+        val trimmed = rawDuration.trim()
+        // Fast path for MM:SS or HH:MM:SS without Regex allocation
+        if (trimmed.contains(':')) {
+            val parts = trimmed.split(':')
+            if (parts.size == 2) {
+                val m = parts[0].trim().toLongOrNull()
+                val s = parts[1].trim().toLongOrNull()
+                if (m != null && s != null) return (m * 60L + s).coerceAtLeast(60L)
+            } else if (parts.size == 3) {
+                val h = parts[0].trim().toLongOrNull()
+                val m = parts[1].trim().toLongOrNull()
+                val s = parts[2].trim().toLongOrNull()
+                if (h != null && m != null && s != null) return (h * 3600L + m * 60L + s).coerceAtLeast(60L)
             }
         }
-        return total
+        val asNum = trimmed.toLongOrNull()
+        if (asNum != null && asNum > 0L) return asNum.coerceAtLeast(60L)
+        return 480L
+    }
+
+    private fun estimateSingleVideoEngagementSeconds(v: com.example.data.local.entity.VideoEntity): Long {
+        val dur = fastParseDurationSeconds(v.duration)
+        val hasNotes = v.notes.isNotBlank()
+        val noteLines = if (!hasNotes) 0 else v.notes.count { it == '\n' } + 1
+        return when {
+            v.isCompleted -> dur + (noteLines * 120L)
+            noteLines > 0 -> (dur * 65L) / 100L + (noteLines * 180L)
+            else -> (dur * 22L) / 100L
+        }
     }
 
     /**
-     * Computes Most Time Spent vs Least Time Spent analytical rankings for:
+     * Computes Most Time Spent vs Least Time Spent analytical rankings in a single fast O(N) pass:
      * 1. YouTube Channels
      * 2. User Playlists
      * 3. Subscription Groups
@@ -329,152 +327,205 @@ object VisualScreenTimerManager {
         allGroups: List<com.example.data.local.entity.SubscriptionGroupEntity>,
         allChannels: List<com.example.data.local.entity.ChannelEntity>
     ): Map<WatchEntityType, CategoryMostLeastSummary> {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val uniqueVideos = allSavedVideos.distinctBy { it.videoId }
+        return try {
+            val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val uniqueVideos = allSavedVideos.distinctBy { it.videoId }
 
-        // 1. CHANNELS ANALYTICS
-        val channelNamesMap = linkedMapOf<String, String>() // lowerName -> displayName
-        for (ch in allChannels) {
-            val clean = ch.name.trim()
-            if (clean.isNotBlank()) {
-                channelNamesMap.putIfAbsent(clean.lowercase(), clean)
+            // Pre-compute engagement seconds per unique videoId once (O(V))
+            val engagementByVideoId = HashMap<String, Long>(uniqueVideos.size)
+            val videosByChannelLower = HashMap<String, MutableList<com.example.data.local.entity.VideoEntity>>()
+            for (v in uniqueVideos) {
+                engagementByVideoId[v.videoId] = estimateSingleVideoEngagementSeconds(v)
+                val chKey = v.channelName.trim().lowercase()
+                if (chKey.isNotBlank()) {
+                    videosByChannelLower.getOrPut(chKey) { mutableListOf() }.add(v)
+                }
             }
-        }
-        for (v in uniqueVideos) {
-            val clean = v.channelName.trim()
-            if (clean.isNotBlank()) {
-                channelNamesMap.putIfAbsent(clean.lowercase(), clean)
-            }
-        }
 
-        val rawChannelStats = channelNamesMap.map { (lowerName, displayName) ->
-            val channelVideos = uniqueVideos.filter { it.channelName.trim().lowercase() == lowerName }
-            val liveTrackedSec = prefs.getLong("watch_channel_$lowerName", 0L)
-            val libraryEngagedSec = estimateLibraryEngagementSeconds(channelVideos)
-            val combinedSec = liveTrackedSec + libraryEngagedSec
-            val completedCnt = channelVideos.count { it.isCompleted }
-            val notesCnt = channelVideos.count { it.notes.isNotBlank() }
-            Triple(
-                displayName,
-                combinedSec,
-                EntityWatchStat(
-                    idKey = "ch_$lowerName",
-                    title = displayName,
-                    subtitle = "${channelVideos.size} वीडियो • $completedCnt पूरे • $notesCnt नोट्स",
+            // Pre-group saved videos by playlistId and groupId in one pass
+            val videosByPlaylistId = HashMap<String, MutableList<com.example.data.local.entity.VideoEntity>>()
+            val videosByGroupId = HashMap<Long, MutableList<com.example.data.local.entity.VideoEntity>>()
+            for (v in allSavedVideos) {
+                val plId = v.playlistId
+                if (!plId.isNullOrBlank()) {
+                    val list = videosByPlaylistId.getOrPut(plId) { mutableListOf() }
+                    if (list.none { it.videoId == v.videoId }) list.add(v)
+                }
+                val gId = v.groupId
+                if (gId != null && gId > 0L) {
+                    val list = videosByGroupId.getOrPut(gId) { mutableListOf() }
+                    if (list.none { it.videoId == v.videoId }) list.add(v)
+                }
+            }
+
+            // 1. CHANNELS ANALYTICS
+            val channelNamesMap = LinkedHashMap<String, String>()
+            for (ch in allChannels) {
+                val clean = ch.name.trim()
+                if (clean.isNotBlank()) {
+                    val low = clean.lowercase()
+                    if (!channelNamesMap.containsKey(low)) channelNamesMap[low] = clean
+                }
+            }
+            for (v in uniqueVideos) {
+                val clean = v.channelName.trim()
+                if (clean.isNotBlank()) {
+                    val low = clean.lowercase()
+                    if (!channelNamesMap.containsKey(low)) channelNamesMap[low] = clean
+                }
+            }
+
+            val rawChannelStats = channelNamesMap.map { (lowerName, displayName) ->
+                val channelVideos = videosByChannelLower[lowerName].orEmpty()
+                val liveTrackedSec = prefs.getLong("watch_channel_$lowerName", 0L)
+                var libraryEngagedSec = 0L
+                var completedCnt = 0
+                var notesCnt = 0
+                for (cv in channelVideos) {
+                    libraryEngagedSec += engagementByVideoId[cv.videoId] ?: 120L
+                    if (cv.isCompleted) completedCnt++
+                    if (cv.notes.isNotBlank()) notesCnt++
+                }
+                val combinedSec = liveTrackedSec + libraryEngagedSec
+                Triple(
+                    displayName,
+                    combinedSec,
+                    EntityWatchStat(
+                        idKey = "ch_$lowerName",
+                        title = displayName,
+                        subtitle = "${channelVideos.size} videos • $completedCnt done • $notesCnt notes",
+                        entityType = WatchEntityType.CHANNEL,
+                        timeSpentSeconds = combinedSec,
+                        videoCount = channelVideos.size,
+                        completedCount = completedCnt,
+                        notesCount = notesCnt,
+                        sharePercent = 0
+                    )
+                )
+            }
+            val totalChannelSeconds = rawChannelStats.sumOf { it.second }.coerceAtLeast(1L)
+            val rankedChannels = rawChannelStats
+                .map { (_, sec, stat) ->
+                    stat.copy(sharePercent = ((sec * 100.0) / totalChannelSeconds).roundToInt().coerceIn(0, 100))
+                }
+                .sortedWith(compareByDescending<EntityWatchStat> { it.timeSpentSeconds }.thenBy { it.title.lowercase() })
+
+            // 2. PLAYLISTS ANALYTICS
+            val rawPlaylistStats = allPlaylists.distinctBy { it.playlistId }.map { pl ->
+                val plTitle = if (pl.title.isBlank() || pl.title.equals("undefined", ignoreCase = true)) "My Playlist" else pl.title
+                val plVideos = videosByPlaylistId[pl.playlistId].orEmpty()
+                val liveTrackedSec = prefs.getLong("watch_playlist_${pl.playlistId}", 0L)
+                var libraryEngagedSec = 0L
+                var completedCnt = 0
+                var notesCnt = 0
+                for (pv in plVideos) {
+                    libraryEngagedSec += engagementByVideoId[pv.videoId] ?: 120L
+                    if (pv.isCompleted) completedCnt++
+                    if (pv.notes.isNotBlank()) notesCnt++
+                }
+                val combinedSec = liveTrackedSec + libraryEngagedSec
+                Triple(
+                    plTitle,
+                    combinedSec,
+                    EntityWatchStat(
+                        idKey = "pl_${pl.playlistId}",
+                        title = plTitle,
+                        subtitle = "${plVideos.size} videos • $completedCnt done • $notesCnt notes",
+                        entityType = WatchEntityType.PLAYLIST,
+                        timeSpentSeconds = combinedSec,
+                        videoCount = plVideos.size,
+                        completedCount = completedCnt,
+                        notesCount = notesCnt,
+                        sharePercent = 0
+                    )
+                )
+            }
+            val totalPlaylistSeconds = rawPlaylistStats.sumOf { it.second }.coerceAtLeast(1L)
+            val rankedPlaylists = rawPlaylistStats
+                .map { (_, sec, stat) ->
+                    stat.copy(sharePercent = ((sec * 100.0) / totalPlaylistSeconds).roundToInt().coerceIn(0, 100))
+                }
+                .sortedWith(compareByDescending<EntityWatchStat> { it.timeSpentSeconds }.thenBy { it.title.lowercase() })
+
+            // 3. GROUPS ANALYTICS
+            val channelsByGroupId = allChannels.groupBy { it.groupId }
+            val rawGroupStats = allGroups.distinctBy { it.id }.map { grp ->
+                val grpChannels = channelsByGroupId[grp.id].orEmpty()
+                val grpChannelNamesLower = grpChannels.map { it.name.trim().lowercase() }.toSet()
+                val grpVideoMap = LinkedHashMap<String, com.example.data.local.entity.VideoEntity>()
+                for (gv in videosByGroupId[grp.id].orEmpty()) {
+                    grpVideoMap[gv.videoId] = gv
+                }
+                for (chLower in grpChannelNamesLower) {
+                    for (cv in videosByChannelLower[chLower].orEmpty()) {
+                        grpVideoMap[cv.videoId] = cv
+                    }
+                }
+                val grpVideos = grpVideoMap.values
+                val liveTrackedSec = prefs.getLong("watch_group_${grp.id}", 0L) +
+                    grpChannelNamesLower.sumOf { chLower -> prefs.getLong("watch_channel_$chLower", 0L) }
+                var libraryEngagedSec = 0L
+                var completedCnt = 0
+                var notesCnt = 0
+                for (gv in grpVideos) {
+                    libraryEngagedSec += engagementByVideoId[gv.videoId] ?: 120L
+                    if (gv.isCompleted) completedCnt++
+                    if (gv.notes.isNotBlank()) notesCnt++
+                }
+                val channelBaselineSec = grpChannels.size * 45L
+                val combinedSec = liveTrackedSec + libraryEngagedSec + (if (grpVideos.isEmpty()) channelBaselineSec else 0L)
+                Triple(
+                    grp.name,
+                    combinedSec,
+                    EntityWatchStat(
+                        idKey = "grp_${grp.id}",
+                        title = grp.name,
+                        subtitle = "${grpChannels.size} channels • ${grpVideos.size} videos • $notesCnt notes",
+                        entityType = WatchEntityType.GROUP,
+                        timeSpentSeconds = combinedSec,
+                        videoCount = grpVideos.size,
+                        completedCount = completedCnt,
+                        notesCount = notesCnt,
+                        sharePercent = 0
+                    )
+                )
+            }
+            val totalGroupSeconds = rawGroupStats.sumOf { it.second }.coerceAtLeast(1L)
+            val rankedGroups = rawGroupStats
+                .map { (_, sec, stat) ->
+                    stat.copy(sharePercent = ((sec * 100.0) / totalGroupSeconds).roundToInt().coerceIn(0, 100))
+                }
+                .sortedWith(compareByDescending<EntityWatchStat> { it.timeSpentSeconds }.thenBy { it.title.lowercase() })
+
+            mapOf(
+                WatchEntityType.CHANNEL to CategoryMostLeastSummary(
                     entityType = WatchEntityType.CHANNEL,
-                    timeSpentSeconds = combinedSec,
-                    videoCount = channelVideos.size,
-                    completedCount = completedCnt,
-                    notesCount = notesCnt,
-                    sharePercent = 0
-                )
-            )
-        }
-        val totalChannelSeconds = rawChannelStats.sumOf { it.second }.coerceAtLeast(1L)
-        val rankedChannels = rawChannelStats
-            .map { (_, sec, stat) ->
-                stat.copy(sharePercent = ((sec * 100.0) / totalChannelSeconds).roundToInt().coerceIn(0, 100))
-            }
-            .sortedWith(compareByDescending<EntityWatchStat> { it.timeSpentSeconds }.thenBy { it.title.lowercase() })
-
-        // 2. PLAYLISTS ANALYTICS
-        val rawPlaylistStats = allPlaylists.map { pl ->
-            val plTitle = if (pl.title.isBlank() || pl.title.equals("undefined", ignoreCase = true)) "My Playlist" else pl.title
-            val plVideos = allSavedVideos
-                .filter { it.playlistId == pl.playlistId }
-                .distinctBy { it.videoId }
-            val liveTrackedSec = prefs.getLong("watch_playlist_${pl.playlistId}", 0L)
-            val libraryEngagedSec = estimateLibraryEngagementSeconds(plVideos)
-            val combinedSec = liveTrackedSec + libraryEngagedSec
-            val completedCnt = plVideos.count { it.isCompleted }
-            val notesCnt = plVideos.count { it.notes.isNotBlank() }
-            Triple(
-                plTitle,
-                combinedSec,
-                EntityWatchStat(
-                    idKey = "pl_${pl.playlistId}",
-                    title = plTitle,
-                    subtitle = "${plVideos.size} वीडियो • $completedCnt पूरे • $notesCnt नोट्स",
+                    categoryTitleHindi = "📺 YouTube Channels",
+                    mostSpent = rankedChannels.firstOrNull(),
+                    leastSpent = if (rankedChannels.size >= 2) rankedChannels.lastOrNull() else rankedChannels.firstOrNull(),
+                    rankedAll = rankedChannels,
+                    totalCategorySeconds = rawChannelStats.sumOf { it.second }
+                ),
+                WatchEntityType.PLAYLIST to CategoryMostLeastSummary(
                     entityType = WatchEntityType.PLAYLIST,
-                    timeSpentSeconds = combinedSec,
-                    videoCount = plVideos.size,
-                    completedCount = completedCnt,
-                    notesCount = notesCnt,
-                    sharePercent = 0
-                )
-            )
-        }
-        val totalPlaylistSeconds = rawPlaylistStats.sumOf { it.second }.coerceAtLeast(1L)
-        val rankedPlaylists = rawPlaylistStats
-            .map { (_, sec, stat) ->
-                stat.copy(sharePercent = ((sec * 100.0) / totalPlaylistSeconds).roundToInt().coerceIn(0, 100))
-            }
-            .sortedWith(compareByDescending<EntityWatchStat> { it.timeSpentSeconds }.thenBy { it.title.lowercase() })
-
-        // 3. GROUPS ANALYTICS
-        val rawGroupStats = allGroups.map { grp ->
-            val grpChannels = allChannels.filter { it.groupId == grp.id }
-            val grpChannelNamesLower = grpChannels.map { it.name.trim().lowercase() }.toSet()
-            val grpVideos = allSavedVideos
-                .filter { it.groupId == grp.id || it.channelName.trim().lowercase() in grpChannelNamesLower }
-                .distinctBy { it.videoId }
-            val liveTrackedSec = prefs.getLong("watch_group_${grp.id}", 0L) +
-                grpChannelNamesLower.sumOf { chLower -> prefs.getLong("watch_channel_$chLower", 0L) }
-            val libraryEngagedSec = estimateLibraryEngagementSeconds(grpVideos)
-            // If a group has channels but no synced videos yet, provide a small baseline per channel so groups compare cleanly
-            val channelBaselineSec = grpChannels.size * 45L
-            val combinedSec = liveTrackedSec + libraryEngagedSec + (if (grpVideos.isEmpty()) channelBaselineSec else 0L)
-            val completedCnt = grpVideos.count { it.isCompleted }
-            val notesCnt = grpVideos.count { it.notes.isNotBlank() }
-            Triple(
-                grp.name,
-                combinedSec,
-                EntityWatchStat(
-                    idKey = "grp_${grp.id}",
-                    title = grp.name,
-                    subtitle = "${grpChannels.size} चैनल्स • ${grpVideos.size} वीडियो • $notesCnt नोट्स",
+                    categoryTitleHindi = "🎵 Playlists",
+                    mostSpent = rankedPlaylists.firstOrNull(),
+                    leastSpent = if (rankedPlaylists.size >= 2) rankedPlaylists.lastOrNull() else rankedPlaylists.firstOrNull(),
+                    rankedAll = rankedPlaylists,
+                    totalCategorySeconds = rawPlaylistStats.sumOf { it.second }
+                ),
+                WatchEntityType.GROUP to CategoryMostLeastSummary(
                     entityType = WatchEntityType.GROUP,
-                    timeSpentSeconds = combinedSec,
-                    videoCount = grpVideos.size,
-                    completedCount = completedCnt,
-                    notesCount = notesCnt,
-                    sharePercent = 0
+                    categoryTitleHindi = "📁 Channel Groups",
+                    mostSpent = rankedGroups.firstOrNull(),
+                    leastSpent = if (rankedGroups.size >= 2) rankedGroups.lastOrNull() else rankedGroups.firstOrNull(),
+                    rankedAll = rankedGroups,
+                    totalCategorySeconds = rawGroupStats.sumOf { it.second }
                 )
             )
+        } catch (_: Exception) {
+            emptyMap()
         }
-        val totalGroupSeconds = rawGroupStats.sumOf { it.second }.coerceAtLeast(1L)
-        val rankedGroups = rawGroupStats
-            .map { (_, sec, stat) ->
-                stat.copy(sharePercent = ((sec * 100.0) / totalGroupSeconds).roundToInt().coerceIn(0, 100))
-            }
-            .sortedWith(compareByDescending<EntityWatchStat> { it.timeSpentSeconds }.thenBy { it.title.lowercase() })
-
-        return mapOf(
-            WatchEntityType.CHANNEL to CategoryMostLeastSummary(
-                entityType = WatchEntityType.CHANNEL,
-                categoryTitleHindi = "📺 YouTube चैनल्स",
-                mostSpent = rankedChannels.firstOrNull(),
-                leastSpent = if (rankedChannels.size >= 2) rankedChannels.lastOrNull() else rankedChannels.firstOrNull(),
-                rankedAll = rankedChannels,
-                totalCategorySeconds = rawChannelStats.sumOf { it.second }
-            ),
-            WatchEntityType.PLAYLIST to CategoryMostLeastSummary(
-                entityType = WatchEntityType.PLAYLIST,
-                categoryTitleHindi = "🎵 प्लेलिस्ट (Playlists)",
-                mostSpent = rankedPlaylists.firstOrNull(),
-                leastSpent = if (rankedPlaylists.size >= 2) rankedPlaylists.lastOrNull() else rankedPlaylists.firstOrNull(),
-                rankedAll = rankedPlaylists,
-                totalCategorySeconds = rawPlaylistStats.sumOf { it.second }
-            ),
-            WatchEntityType.GROUP to CategoryMostLeastSummary(
-                entityType = WatchEntityType.GROUP,
-                categoryTitleHindi = "📁 चैनल ग्रुप्स (Groups)",
-                mostSpent = rankedGroups.firstOrNull(),
-                leastSpent = if (rankedGroups.size >= 2) rankedGroups.lastOrNull() else rankedGroups.firstOrNull(),
-                rankedAll = rankedGroups,
-                totalCategorySeconds = rawGroupStats.sumOf { it.second }
-            )
-        )
     }
 
     private fun syncTodayZonesFromElapsed(context: Context, totalSeconds: Long) {
@@ -551,7 +602,7 @@ object VisualScreenTimerManager {
                 list.add(
                     DailyZoneUsage(
                         dateKey = dKey,
-                        dayShortLabel = if (isToday) "आज (${dayFmt.format(cal.time)})" else dayFmt.format(cal.time),
+                        dayShortLabel = if (isToday) "Today (${dayFmt.format(cal.time)})" else dayFmt.format(cal.time),
                         dateDisplayLabel = dateFmt.format(cal.time),
                         isToday = isToday,
                         greenSeconds = gSec,
@@ -606,9 +657,9 @@ object VisualScreenTimerManager {
                 darkSurfaceColor = Color(0xFF062312),
                 badgeBgColor = Color(0xFF00E676).copy(alpha = 0.18f),
                 textColor = Color(0xFF69F0AE),
-                zoneLabelHindi = "🟢 हरा ज़ोन (0–40m)",
+                zoneLabelHindi = "🟢 Safe (0–40m)",
                 zoneShortBadge = "🟢 SAFE",
-                zoneDescriptionHindi = "आप शुरुआती 40 मिनट के सुरक्षित फोकस ज़ोन में हैं। टाइमर हरा जल रहा है।"
+                zoneDescriptionHindi = "You are in the initial 40-minute Safe Focus Zone. Timer is glowing green."
             )
             TimerVisualZone.YELLOW_CAUTION -> TimerZonePalette(
                 zone = TimerVisualZone.YELLOW_CAUTION,
@@ -617,9 +668,9 @@ object VisualScreenTimerManager {
                 darkSurfaceColor = Color(0xFF2B2103),
                 badgeBgColor = Color(0xFFFFEA00).copy(alpha = 0.20f),
                 textColor = Color(0xFFFFF176),
-                zoneLabelHindi = "🟡 पीला ज़ोन (40m–1.5h)",
+                zoneLabelHindi = "🟡 Caution (40m–1.5h)",
                 zoneShortBadge = "🟡 CAUTION",
-                zoneDescriptionHindi = "40 मिनट पूरे हो चुके हैं। अब टाइमर पीला पड़ गया है (डेढ़ घंटे तक पीला ज़ोन)।"
+                zoneDescriptionHindi = "40 minutes completed. Timer is now in the Yellow Caution Zone (up to 1.5 hours)."
             )
             TimerVisualZone.AMBER_WARNING -> TimerZonePalette(
                 zone = TimerVisualZone.AMBER_WARNING,
@@ -628,9 +679,9 @@ object VisualScreenTimerManager {
                 darkSurfaceColor = Color(0xFF331604),
                 badgeBgColor = Color(0xFFFF9100).copy(alpha = 0.22f),
                 textColor = Color(0xFFFFCC80),
-                zoneLabelHindi = "🟠 चेतावनी (1.5h–2h)",
+                zoneLabelHindi = "🟠 Warning (1.5h–2h)",
                 zoneShortBadge = "🟠 1.5h+ WARN",
-                zoneDescriptionHindi = "डेढ़ घंटे से ऊपर समय हो गया है! 2 घंटे होते ही यह खतरनाक लाल (Red) हो जाएगा।"
+                zoneDescriptionHindi = "Over 1.5 hours of screen time! Approaching the 2-hour Red Danger limit."
             )
             TimerVisualZone.RED_DANGER -> TimerZonePalette(
                 zone = TimerVisualZone.RED_DANGER,
@@ -639,9 +690,9 @@ object VisualScreenTimerManager {
                 darkSurfaceColor = Color(0xFF3A040C),
                 badgeBgColor = Color(0xFFFF1744).copy(alpha = 0.26f),
                 textColor = Color(0xFFFF8A80),
-                zoneLabelHindi = "🔴 खतरनाक रेड! (2h+)",
+                zoneLabelHindi = "🔴 Danger! (2h+)",
                 zoneShortBadge = "🔴 DANGER 2h+",
-                zoneDescriptionHindi = "⚠️ सावधान! ऐप चलाते हुए 2 घंटे से ज़्यादा हो चुके हैं। यह खतरनाक (Red Alert) ज़ोन है — कृपया ब्रेक लें!"
+                zoneDescriptionHindi = "⚠️ Warning! Over 2 hours of app usage. You are in the Red Alert zone — please take a break!"
             )
         }
     }
@@ -733,37 +784,15 @@ fun AppHeaderVisualTimerBanner(
 ) {
     val context = LocalContext.current
     val elapsedSeconds by VisualScreenTimerManager.elapsedSecondsFlow.collectAsState()
+    val isAppLockEnabled by BiometricAppLockManager.isAppLockEnabled.collectAsState()
     var showTimerInspectorDialog by remember { mutableStateOf(false) }
+    var showSecurityDialog by remember { mutableStateOf(false) }
 
-    val palette = remember(elapsedSeconds) {
+    val palette = remember(elapsedSeconds / 10L) {
         VisualScreenTimerManager.getPaletteForSeconds(elapsedSeconds)
     }
 
-    val animatedPrimaryColor by animateColorAsState(
-        targetValue = palette.primaryGlowColor,
-        animationSpec = tween(durationMillis = 600),
-        label = "timerPrimaryGlow"
-    )
-    val animatedSurfaceColor by animateColorAsState(
-        targetValue = palette.darkSurfaceColor,
-        animationSpec = tween(durationMillis = 600),
-        label = "timerSurfaceColor"
-    )
-
-    val infiniteTransition = rememberInfiniteTransition(label = "timerPulseTransition")
-    val pulseDuration = if (palette.zone == TimerVisualZone.RED_DANGER) 550 else 1300
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = pulseDuration, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "timerPulseAlpha"
-    )
-
-    // Progress ratio across the 2-hour (7200s) spectrum
-    val spectrumProgress = remember(elapsedSeconds) {
+    val spectrumProgress = remember(elapsedSeconds / 5L) {
         (elapsedSeconds.toFloat() / VisualScreenTimerManager.DANGER_RED_SECONDS.toFloat()).coerceIn(0f, 1f)
     }
 
@@ -772,234 +801,189 @@ fun AppHeaderVisualTimerBanner(
             .fillMaxWidth()
             .clickable { showTimerInspectorDialog = true }
             .testTag("app_header_visual_timer_banner"),
-        color = animatedSurfaceColor,
-        tonalElevation = 4.dp
+        color = palette.darkSurfaceColor,
+        tonalElevation = 2.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .border(
-                    width = if (palette.zone == TimerVisualZone.RED_DANGER) 1.5.dp else 1.dp,
-                    color = animatedPrimaryColor.copy(
-                        alpha = if (palette.zone == TimerVisualZone.RED_DANGER) pulseAlpha else 0.65f
-                    )
-                )
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .padding(horizontal = 10.dp, vertical = 3.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Left: Glowing LED Orb + Digital Clock Readout
+                // Left: Glowing LED Orb + Digital Clock Readout + Zone Badge
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Glowing LED Light Indicator
                     Box(
                         contentAlignment = Alignment.Center,
-                        modifier = Modifier.size(20.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(20.dp)
-                                .clip(CircleShape)
-                                .background(animatedPrimaryColor.copy(alpha = 0.28f * pulseAlpha))
-                        )
-                        Box(
-                            modifier = Modifier
-                                .size(10.dp)
-                                .shadow(elevation = 6.dp, shape = CircleShape, spotColor = animatedPrimaryColor)
-                                .clip(CircleShape)
-                                .background(animatedPrimaryColor)
-                        )
-                    }
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(palette.primaryGlowColor)
+                    ) {}
 
-                    // Digital Time Readout Capsule
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color.Black.copy(alpha = 0.45f),
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color.Black.copy(alpha = 0.40f),
                         modifier = Modifier
                             .border(
-                                width = 1.dp,
-                                color = animatedPrimaryColor.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(8.dp)
+                                width = 0.8.dp,
+                                color = palette.primaryGlowColor.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(6.dp)
                             )
                             .testTag("visual_timer_digital_readout")
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Icon(
                                 imageVector = if (palette.zone == TimerVisualZone.RED_DANGER) Icons.Default.Warning else Icons.Default.Timer,
                                 contentDescription = null,
-                                tint = animatedPrimaryColor,
-                                modifier = Modifier.size(12.dp)
+                                tint = palette.primaryGlowColor,
+                                modifier = Modifier.size(11.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
                             Text(
                                 text = VisualScreenTimerManager.formatDurationHms(elapsedSeconds),
                                 fontFamily = FontFamily.Monospace,
-                                fontSize = 13.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = animatedPrimaryColor,
-                                letterSpacing = 0.6.sp
+                                color = palette.primaryGlowColor
                             )
                         }
                     }
 
-                    // Zone Status Badge
                     Surface(
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(5.dp),
                         color = palette.badgeBgColor,
-                        modifier = Modifier
-                            .border(
-                                width = 0.8.dp,
-                                color = animatedPrimaryColor.copy(alpha = 0.55f),
-                                shape = RoundedCornerShape(6.dp)
-                            )
-                            .testTag("visual_timer_zone_badge")
+                        modifier = Modifier.testTag("visual_timer_zone_badge")
                     ) {
                         Text(
                             text = palette.zoneLabelHindi,
                             fontSize = 9.sp,
-                            fontWeight = FontWeight.ExtraBold,
+                            fontWeight = FontWeight.Bold,
                             color = palette.textColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                         )
                     }
                 }
 
-                // Right: Quick Action Pills for Fullscreen Goal Note & Weekly Dashboard
+                // Right: Compact Quick Action Pills for Biometric App Lock, Goal Note & Weekly Dashboard
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    Surface(
+                        shape = RoundedCornerShape(5.dp),
+                        color = if (isAppLockEnabled) Color(0xFF2ECC71).copy(alpha = 0.25f) else Color.White.copy(alpha = 0.14f),
+                        modifier = Modifier
+                            .clickable { showSecurityDialog = true }
+                            .testTag("header_open_biometric_lock_button")
+                    ) {
+                        Text(
+                            text = if (isAppLockEnabled) "🔒 Lock ON" else "🔓 App Lock",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isAppLockEnabled) Color(0xFF69F0AE) else Color.White,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
                     if (onOpenReminderScreen != null) {
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(5.dp),
                             color = Color.White.copy(alpha = 0.14f),
                             modifier = Modifier
                                 .clickable { onOpenReminderScreen() }
                                 .testTag("header_open_startup_reminder_button")
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.EditNote,
-                                    contentDescription = "Open Fullscreen Goal Reminder",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text(
-                                    text = "📌 लक्ष्य",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
+                            Text(
+                                text = "📌 Goal",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
                         }
                     }
 
                     if (onOpenDashboardTab != null) {
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = animatedPrimaryColor.copy(alpha = 0.18f),
+                            shape = RoundedCornerShape(5.dp),
+                            color = palette.primaryGlowColor.copy(alpha = 0.18f),
                             modifier = Modifier
                                 .clickable { onOpenDashboardTab() }
                                 .testTag("header_open_dashboard_button")
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Assessment,
-                                    contentDescription = "Open Weekly Usage Dashboard",
-                                    tint = palette.textColor,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text(
-                                    text = "📊 7d",
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = palette.textColor
-                                )
-                            }
+                            Text(
+                                text = "📊 7d",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = palette.textColor,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(5.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
-            // Bottom: 3-Zone Visual Color Spectrum Bar (Green 0-40m | Yellow 40m-1.5h | Red 2h+)
-            Box(
+            // Thin 2.5dp 3-Zone Visual Color Spectrum Line
+            Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(5.dp)
+                    .height(2.5.dp)
             ) {
-                Canvas(modifier = Modifier.fillMaxWidth().height(5.dp)) {
-                    val w = size.width
-                    val h = size.height
-                    val greenEnd = w * (40f / 120f)   // 33.3% (40m / 120m)
-                    val yellowEnd = w * (90f / 120f)  // 75.0% (90m / 120m)
+                val w = size.width
+                val h = size.height
+                if (w <= 16f || h <= 0f) return@Canvas
+                val greenEnd = w * (40f / 120f)
+                val yellowEnd = w * (90f / 120f)
 
-                    // Background track segments (dimmed)
-                    drawRoundRect(
-                        color = Color(0xFF00E676).copy(alpha = 0.22f),
-                        topLeft = Offset(0f, 0f),
-                        size = Size(greenEnd, h),
-                        cornerRadius = CornerRadius(3.dp.toPx())
-                    )
-                    drawRoundRect(
-                        color = Color(0xFFFFEA00).copy(alpha = 0.22f),
-                        topLeft = Offset(greenEnd + 2.dp.toPx(), 0f),
-                        size = Size((yellowEnd - greenEnd - 2.dp.toPx()).coerceAtLeast(0f), h),
-                        cornerRadius = CornerRadius(3.dp.toPx())
-                    )
-                    drawRoundRect(
-                        color = Color(0xFFFF1744).copy(alpha = 0.25f),
-                        topLeft = Offset(yellowEnd + 2.dp.toPx(), 0f),
-                        size = Size((w - yellowEnd - 2.dp.toPx()).coerceAtLeast(0f), h),
-                        cornerRadius = CornerRadius(3.dp.toPx())
-                    )
+                drawRoundRect(
+                    color = Color(0xFF00E676).copy(alpha = 0.22f),
+                    topLeft = Offset(0f, 0f),
+                    size = Size(greenEnd.coerceAtLeast(0f), h),
+                    cornerRadius = CornerRadius(2.dp.toPx())
+                )
+                drawRoundRect(
+                    color = Color(0xFFFFEA00).copy(alpha = 0.22f),
+                    topLeft = Offset(greenEnd, 0f),
+                    size = Size((yellowEnd - greenEnd).coerceAtLeast(0f), h),
+                    cornerRadius = CornerRadius(2.dp.toPx())
+                )
+                drawRoundRect(
+                    color = Color(0xFFFF1744).copy(alpha = 0.25f),
+                    topLeft = Offset(yellowEnd, 0f),
+                    size = Size((w - yellowEnd).coerceAtLeast(0f), h),
+                    cornerRadius = CornerRadius(2.dp.toPx())
+                )
 
-                    // Active illuminated fill up to current progress
-                    val activeWidth = (w * spectrumProgress).coerceIn(6.dp.toPx(), w)
-                    drawRoundRect(
-                        brush = Brush.horizontalGradient(
-                            colors = when (palette.zone) {
-                                TimerVisualZone.GREEN_SAFE -> listOf(Color(0xFF00C853), Color(0xFF00E676))
-                                TimerVisualZone.YELLOW_CAUTION -> listOf(Color(0xFF00E676), Color(0xFFFFEA00))
-                                TimerVisualZone.AMBER_WARNING -> listOf(Color(0xFF00E676), Color(0xFFFFEA00), Color(0xFFFF9100))
-                                TimerVisualZone.RED_DANGER -> listOf(Color(0xFF00E676), Color(0xFFFFEA00), Color(0xFFFF1744))
-                            },
-                            startX = 0f,
-                            endX = activeWidth
-                        ),
-                        topLeft = Offset(0f, 0f),
-                        size = Size(activeWidth, h),
-                        cornerRadius = CornerRadius(3.dp.toPx())
-                    )
-
-                    // Glowing current position indicator dot
-                    drawCircle(
-                        color = Color.White,
-                        radius = (h * 0.65f),
-                        center = Offset(activeWidth.coerceIn(4.dp.toPx(), w - 4.dp.toPx()), h / 2f)
-                    )
-                }
+                val minFill = 6f.coerceAtMost(w)
+                val activeWidth = (w * spectrumProgress).coerceIn(minFill, w)
+                drawRoundRect(
+                    color = palette.primaryGlowColor,
+                    topLeft = Offset(0f, 0f),
+                    size = Size(activeWidth, h),
+                    cornerRadius = CornerRadius(2.dp.toPx())
+                )
             }
         }
+    }
+
+    if (showSecurityDialog) {
+        BiometricAndAiSecurityDialog(
+            onDismiss = { showSecurityDialog = false }
+        )
     }
 
     if (showTimerInspectorDialog) {
@@ -1152,13 +1136,13 @@ fun VisualTimerInspectorDialog(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
-                        text = "⏱️ स्मार्ट विजुअल ऐप टाइमर",
+                        text = "⏱️ Smart Visual App Timer",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.ExtraBold,
                         color = Color.White
                     )
                     Text(
-                        text = "ऐप बंद करके दोबारा खोलने पर भी वहीं से आगे चलता है",
+                        text = "Resumes from your exact saved second even after closing the app",
                         fontSize = 11.sp,
                         color = Color(0xFFB0BEC5)
                     )
@@ -1252,7 +1236,7 @@ fun VisualTimerInspectorDialog(
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = "🎨 टाइमर के 3 कलर सिग्नल (टेस्ट/चेक करने के लिए टैप करें):",
+                            text = "🎨 3 Timer Color Signals (Tap to preview):",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFCFD8DC)
@@ -1271,12 +1255,12 @@ fun VisualTimerInspectorDialog(
                                 .testTag("timer_preview_green_zone")
                         ) {
                             Text(
-                                text = "🟢 0 – 40 मिनट : हरा (Safe Focus)",
+                                text = "🟢 0 – 40 min : Green (Safe Focus)",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF00E676)
                             )
-                            Text("टेस्ट (15m)", fontSize = 10.sp, color = Color(0xFF69F0AE))
+                            Text("Preview (15m)", fontSize = 10.sp, color = Color(0xFF69F0AE))
                         }
 
                         // 2. Yellow Zone Row
@@ -1292,12 +1276,12 @@ fun VisualTimerInspectorDialog(
                                 .testTag("timer_preview_yellow_zone")
                         ) {
                             Text(
-                                text = "🟡 40m – 1.5 घंटा : पीला (Caution)",
+                                text = "🟡 40m – 1.5 hr : Yellow (Caution)",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFFFEA00)
                             )
-                            Text("टेस्ट (55m)", fontSize = 10.sp, color = Color(0xFFFFF176))
+                            Text("Preview (55m)", fontSize = 10.sp, color = Color(0xFFFFF176))
                         }
 
                         // 3. Red Danger Zone Row
@@ -1313,12 +1297,12 @@ fun VisualTimerInspectorDialog(
                                 .testTag("timer_preview_red_zone")
                         ) {
                             Text(
-                                text = "🔴 2 घंटे से ऊपर : खतरनाक रेड (Danger!)",
+                                text = "🔴 Over 2 hours : Danger Red!",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFFF1744)
                             )
-                            Text("टेस्ट (2h 5m)", fontSize = 10.sp, color = Color(0xFFFF8A80))
+                            Text("Preview (2h 5m)", fontSize = 10.sp, color = Color(0xFFFF8A80))
                         }
                     }
                 }
@@ -1339,7 +1323,7 @@ fun VisualTimerInspectorDialog(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "🔄 नए सेशन के लिए 00:00:00 पर रीसेट करें",
+                        text = "🔄 Reset to 00:00:00 for New Session",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -1348,7 +1332,7 @@ fun VisualTimerInspectorDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("बंद करें (Close)", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("Close", color = Color.White, fontWeight = FontWeight.Bold)
             }
         }
     )

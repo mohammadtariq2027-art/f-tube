@@ -46,11 +46,21 @@ object YouTubeSyncHelper {
             .build()
     }
 
+    @Volatile
+    private var cookieManagerReady: Boolean = false
+
+    fun markCookieManagerReady() {
+        cookieManagerReady = true
+    }
+
     /**
      * Checks if the user has an active authenticated YouTube WebView session (SAPISID cookie).
+     * Avoids cold-initializing Chromium/WebView on app startup unless [allowColdInit] is true.
      */
-    fun hasYouTubeWebSession(): Boolean {
+    fun hasYouTubeWebSession(allowColdInit: Boolean = false): Boolean {
+        if (!cookieManagerReady && !allowColdInit) return false
         return try {
+            cookieManagerReady = true
             val (_, sapisid) = getCombinedCookiesAndSapisid()
             sapisid.isNotBlank()
         } catch (e: Exception) {

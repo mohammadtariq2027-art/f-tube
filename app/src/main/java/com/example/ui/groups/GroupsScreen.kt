@@ -339,13 +339,14 @@ fun GroupsScreen(
                 .background(MaterialTheme.colorScheme.background)
         ) {
             TopAppBar(
+                windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
                 title = {
                     if (isSearchActive) {
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
                             placeholder = {
-                                Text(if (showAllChannelsTab) "चैनल खोजें (A to Z)..." else "ग्रुप खोजें...")
+                                Text(if (showAllChannelsTab) "Search channels (A to Z)..." else "Search groups...")
                             },
                             singleLine = true,
                             modifier = Modifier
@@ -364,12 +365,18 @@ fun GroupsScreen(
                         Column {
                             Text(
                                 text = "Groups & Channels (A–Z)",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
+                                style = MaterialTheme.typography.titleMedium,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
-                                text = "${groups.size} ग्रुप्स • ${allMasterChannels.size} चैनल्स (PocketTube Mode)",
+                                text = "${groups.size} Groups • ${allMasterChannels.size} Channels (PocketTube)",
                                 style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -446,14 +453,16 @@ fun GroupsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FilledTonalButton(
                     onClick = { showAllChannelsTab = false },
                     shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                     modifier = Modifier
                         .weight(1f)
+                        .height(38.dp)
                         .testTag("tab_my_groups"),
                     colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = if (!showAllChannelsTab) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
@@ -461,17 +470,22 @@ fun GroupsScreen(
                     )
                 ) {
                     Text(
-                        text = "📁 मेरे ग्रुप्स (${groups.size})",
+                        text = "📁 My Groups (${groups.size})",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
                 FilledTonalButton(
                     onClick = { showAllChannelsTab = true },
                     shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                     modifier = Modifier
                         .weight(1f)
+                        .height(38.dp)
                         .testTag("tab_all_channels_az"),
                     colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = if (showAllChannelsTab) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
@@ -479,9 +493,12 @@ fun GroupsScreen(
                     )
                 ) {
                     Text(
-                        text = "📺 सारे चैनल्स A–Z (${allMasterChannels.size})",
+                        text = "📺 All Channels A–Z (${allMasterChannels.size})",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
@@ -503,9 +520,9 @@ fun GroupsScreen(
                     ) {
                         Text(
                             text = if (isDragging) {
-                                "📥 '${activeDragChannel?.channelName}' को जिस ग्रुप में जोड़ना/मूव करना है उस पर ड्रॉप करें:"
+                                "📥 Drop '${activeDragChannel?.channelName}' onto any group below to assign/move:"
                             } else {
-                                "🖐️ Drag & Drop: किसी भी चैनल के '⠿' हैंडल को पकड़कर नीचे किसी भी ग्रुप पर ड्रॉप करें:"
+                                "🖐️ Drag & Drop: Hold any channel's '⠿' handle and drop onto a group chip below:"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
@@ -591,7 +608,7 @@ fun GroupsScreen(
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Text(
-                                    text = "📊 चैनल ग्रुप स्टेटस फ़िल्टर (टैप करके छांटें):",
+                                    text = "📊 Channel Group Status Filter (Tap to filter):",
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
@@ -605,28 +622,28 @@ fun GroupsScreen(
                                         FilterChip(
                                             selected = channelMembershipFilter == "ALL",
                                             onClick = { channelMembershipFilter = "ALL" },
-                                            label = { Text("🔤 सभी (${allMasterChannels.size})", fontSize = 11.sp) }
+                                            label = { Text("🔤 All (${allMasterChannels.size})", fontSize = 11.sp) }
                                         )
                                     }
                                     item {
                                         FilterChip(
                                             selected = channelMembershipFilter == "UNASSIGNED",
                                             onClick = { channelMembershipFilter = "UNASSIGNED" },
-                                            label = { Text("⚠️ Uncategorized / बिना ग्रुप ($unassignedChannelsCount)", fontSize = 11.sp) }
+                                            label = { Text("⚠️ Uncategorized ($unassignedChannelsCount)", fontSize = 11.sp) }
                                         )
                                     }
                                     item {
                                         FilterChip(
                                             selected = channelMembershipFilter == "DOUBLE",
                                             onClick = { channelMembershipFilter = "DOUBLE" },
-                                            label = { Text("⚡ डबल ग्रुप में ($doubleGroupChannelsCount)", fontSize = 11.sp) }
+                                            label = { Text("⚡ Multi-Group ($doubleGroupChannelsCount)", fontSize = 11.sp) }
                                         )
                                     }
                                     item {
                                         FilterChip(
                                             selected = channelMembershipFilter == "SINGLE",
                                             onClick = { channelMembershipFilter = "SINGLE" },
-                                            label = { Text("✅ 1 ग्रुप में ($singleGroupChannelsCount)", fontSize = 11.sp) }
+                                            label = { Text("✅ In 1 Group ($singleGroupChannelsCount)", fontSize = 11.sp) }
                                         )
                                     }
                                 }
@@ -670,16 +687,16 @@ fun GroupsScreen(
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Text(
-                                        text = if (searchQuery.isNotBlank() || channelMembershipFilter != "ALL") "इस फ़िल्टर में कोई चैनल नहीं मिला" else "आपके Subscribed Channels यहाँ A से Z तक दिखेंगे",
+                                        text = if (searchQuery.isNotBlank() || channelMembershipFilter != "ALL") "No channels found in this filter" else "Your Subscribed Channels (A to Z) will appear here",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
                                         text = if (channelMembershipFilter != "ALL") {
-                                            "सभी चैनल्स देखने के लिए ऊपर '🔤 सभी' पर टैप करें।"
+                                            "Tap '🔤 All' above to view all channels."
                                         } else {
-                                            "ऊपर 'मेरे सारे Subscribed Channels व Playlists (A–Z) सिंक करें' बटन दबाएं ताकि आपके YouTube अकाउंट के सभी सब्सक्राइब किए हुए चैनल्स A–Z आ जाएं।"
+                                            "Tap 'Sync Subscribed Channels & Playlists (A–Z)' above to import all your YouTube subscribed channels."
                                         },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -821,7 +838,7 @@ fun GroupsScreen(
                                                             color = Color(0xFFE65100).copy(alpha = 0.15f)
                                                         ) {
                                                             Text(
-                                                                text = "⚠️ किसी भी ग्रुप में शामिल नहीं (Uncategorized)",
+                                                                text = "⚠️ Uncategorized (Not in any group)",
                                                                 style = MaterialTheme.typography.labelSmall,
                                                                 color = Color(0xFFE65100),
                                                                 fontWeight = FontWeight.Bold,
@@ -835,7 +852,7 @@ fun GroupsScreen(
                                                             color = Color(0xFF6A1B9A).copy(alpha = 0.16f)
                                                         ) {
                                                             Text(
-                                                                text = "⚡ डबल ग्रुप (${assignedGroups.size} ग्रुप्स में शामिल)",
+                                                                text = "⚡ Multi-Group (In ${assignedGroups.size} groups)",
                                                                 style = MaterialTheme.typography.labelSmall,
                                                                 color = Color(0xFF6A1B9A),
                                                                 fontWeight = FontWeight.Bold,
@@ -849,7 +866,7 @@ fun GroupsScreen(
                                                             color = Color(0xFF1B5E20).copy(alpha = 0.15f)
                                                         ) {
                                                             Text(
-                                                                text = "✅ 1 ग्रुप में शामिल",
+                                                                text = "✅ Assigned to 1 group",
                                                                 style = MaterialTheme.typography.labelSmall,
                                                                 color = Color(0xFF2E7D32),
                                                                 fontWeight = FontWeight.Bold,
@@ -875,7 +892,7 @@ fun GroupsScreen(
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
                                             Text(
-                                                text = "ग्रुप ☑ (${assignedGroups.size})",
+                                                text = "Groups (${assignedGroups.size})",
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
@@ -907,19 +924,19 @@ fun GroupsScreen(
                             )
                             Spacer(modifier = Modifier.height(20.dp))
                             Text(
-                                text = "कोई चैनल ग्रुप नहीं बना है",
+                                text = "No Channel Groups Yet",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "नया ग्रुप बनाएं और अपने सभी Subscribed YouTube चैनल्स को टिक (☑) करके ग्रुप में शामिल करें।",
+                                text = "Create a new group and tick (☑) your subscribed YouTube channels to organize them.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             Button(onClick = { showCreateGroupDialog = true }) {
-                                Text("+ नया ग्रुप बनाएं (Create Group)")
+                                Text("+ Create Group")
                             }
                         }
                     }
@@ -981,7 +998,7 @@ fun GroupsScreen(
                                                 .padding(bottom = 8.dp)
                                         ) {
                                             Text(
-                                                text = "📥 यहाँ छोड़ें: '${activeDragChannel?.channelName}' को '${group.name}' में मूव करें",
+                                                text = "📥 Drop here: Move '${activeDragChannel?.channelName}' to '${group.name}'",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color.White,
@@ -1048,20 +1065,25 @@ fun GroupsScreen(
                                     FilledTonalButton(
                                         onClick = { tickChannelsTargetGroup = group },
                                         shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .height(38.dp)
                                             .testTag("tick_channels_group_${group.id}")
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.CheckBox,
                                             contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "☑️ A–Z लिस्ट से चैनल्स टिक करके जोड़ें (${allMasterChannels.size} चैनल्स)",
+                                            text = "☑️ Tick Channels from A–Z List (${allMasterChannels.size})",
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
 
@@ -1069,7 +1091,7 @@ fun GroupsScreen(
 
                                     // Channels in this group
                                     Text(
-                                        text = "इस ग्रुप के चैनल्स (${channels.size}) • 🖐️ ड्रैग करके दूसरे ग्रुप में भेजें:",
+                                        text = "Channels in this group (${channels.size}) • 🖐️ Drag to move to another group:",
                                         style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -1078,7 +1100,7 @@ fun GroupsScreen(
 
                                     if (channels.isEmpty()) {
                                         Text(
-                                            text = "अभी कोई चैनल नहीं जुड़ा है। ऊपर '☑️ A–Z लिस्ट से चैनल्स टिक करके जोड़ें' या '+ Channel' दबाएं।",
+                                            text = "No channels added yet. Tap 'Tick Channels from A–Z List' above or '+ Channel' below.",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                         )
@@ -1176,7 +1198,7 @@ fun GroupsScreen(
                                                             )
                                                         }
                                                         DropdownMenuItem(
-                                                            text = { Text("ग्रुप से हटाएं (Remove)", color = MaterialTheme.colorScheme.error) },
+                                                            text = { Text("Remove from Group", color = MaterialTheme.colorScheme.error) },
                                                             onClick = {
                                                                 onDeleteChannel(ch.id)
                                                                 showMoveMenu = false
@@ -1322,7 +1344,7 @@ fun GroupsScreen(
                             text = if (targetGroupName != null) {
                                 "📥 Drop to add/move to '$targetGroupName'"
                             } else {
-                                "🖐️ किसी भी ग्रुप पर ले जाकर छोड़ें"
+                                "🖐️ Drag and drop onto any group card"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             fontSize = 10.sp,
@@ -1378,12 +1400,12 @@ fun GroupsScreen(
             title = {
                 Column {
                     Text(
-                        text = "☑️ '${targetGroup.name}' में चैनल्स जोड़ें (A–Z)",
+                        text = "☑️ Add Channels to '${targetGroup.name}' (A–Z)",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "पॉकेट-ट्यूब की तरह जिस चैनल पर टिक (☑) करेंगे, वह इस ग्रुप में शामिल हो जाएगा:",
+                        text = "Tick (☑) any channel below to include it in this group:",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1394,7 +1416,7 @@ fun GroupsScreen(
                     OutlinedTextField(
                         value = channelSearch,
                         onValueChange = { channelSearch = it },
-                        placeholder = { Text("A से Z चैनल्स में खोजें...") },
+                        placeholder = { Text("Search A to Z channels...") },
                         singleLine = true,
                         leadingIcon = {
                             Icon(imageVector = Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -1421,7 +1443,7 @@ fun GroupsScreen(
                             FilterChip(
                                 selected = dialogFilter == "ALL",
                                 onClick = { dialogFilter = "ALL" },
-                                label = { Text("🔤 सभी (${combinedChannels.size})", fontSize = 11.sp) }
+                                label = { Text("🔤 All (${combinedChannels.size})", fontSize = 11.sp) }
                             )
                         }
                         item {
@@ -1437,7 +1459,7 @@ fun GroupsScreen(
                             FilterChip(
                                 selected = dialogFilter == "DOUBLE",
                                 onClick = { dialogFilter = "DOUBLE" },
-                                label = { Text("⚡ डबल ग्रुप ($doubleCnt)", fontSize = 11.sp) }
+                                label = { Text("⚡ Multi-Group ($doubleCnt)", fontSize = 11.sp) }
                             )
                         }
                         item {
@@ -1445,7 +1467,7 @@ fun GroupsScreen(
                             FilterChip(
                                 selected = dialogFilter == "IN_THIS_GROUP",
                                 onClick = { dialogFilter = "IN_THIS_GROUP" },
-                                label = { Text("✅ इस ग्रुप में ($inThisCnt)", fontSize = 11.sp) }
+                                label = { Text("✅ In This Group ($inThisCnt)", fontSize = 11.sp) }
                             )
                         }
                     }
@@ -1456,7 +1478,7 @@ fun GroupsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "↕ ${visibleChannels.size} चैनल्स दिखाए जा रहे हैं",
+                            text = "↕ Showing ${visibleChannels.size} channels",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold
@@ -1467,7 +1489,7 @@ fun GroupsScreen(
                                 channelTargetGroupId = targetGroup.id
                             }
                         ) {
-                            Text("+ URL/Handle से जोड़ें", fontSize = 11.sp)
+                            Text("+ Add by URL/Handle", fontSize = 11.sp)
                         }
                     }
 
@@ -1526,7 +1548,7 @@ fun GroupsScreen(
                                         if (itemGroups.size >= 2) {
                                             Spacer(modifier = Modifier.height(2.dp))
                                             Text(
-                                                text = "⚡ डबल ग्रुप (${itemGroups.size} ग्रुप्स में शामिल)",
+                                                text = "⚡ Multi-Group (In ${itemGroups.size} groups)",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = Color(0xFF6A1B9A),
                                                 fontWeight = FontWeight.Bold
@@ -1541,7 +1563,7 @@ fun GroupsScreen(
             },
             confirmButton = {
                 Button(onClick = { tickChannelsTargetGroup = null }) {
-                    Text("Done / सेव हो गया")
+                    Text("Done")
                 }
             }
         )
@@ -1565,7 +1587,7 @@ fun GroupsScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "इस चैनल को जिन-जिन ग्रुप्स में रखना चाहते हैं उन पर टिक (☑) करें:",
+                        text = "Tick (☑) the groups where you want to include this channel:",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1575,7 +1597,7 @@ fun GroupsScreen(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     if (groups.isEmpty()) {
                         Text(
-                            text = "अभी कोई ग्रुप नहीं बना है। नीचे नाम लिखकर तुरंत ग्रुप बनाएं:",
+                            text = "No groups created yet. Enter a name below to create a group:",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1645,7 +1667,7 @@ fun GroupsScreen(
                         OutlinedTextField(
                             value = newGroupNameInput,
                             onValueChange = { newGroupNameInput = it },
-                            placeholder = { Text("+ नया ग्रुप नाम...") },
+                            placeholder = { Text("+ New group name...") },
                             singleLine = true,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp)
@@ -1660,7 +1682,7 @@ fun GroupsScreen(
                             enabled = newGroupNameInput.isNotBlank(),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("बनाएं")
+                            Text("Create")
                         }
                     }
                 }
@@ -1920,12 +1942,12 @@ private fun YouTubeAccountChannelsSyncBanner(
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(
-                            text = "पॉकेट-ट्यूब (PocketTube) मोड • कुल $totalChannelsCount चैनल्स",
+                            text = "PocketTube Mode • $totalChannelsCount Total Channels",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "अपने YouTube अकाउंट के सभी Subscribed चैनल्स (A–Z) लाएं और टिक (☑) करके ग्रुप्स में रखें।",
+                            text = "Import all your YouTube Subscribed Channels (A–Z) and tick (☑) to organize them into groups.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1943,29 +1965,39 @@ private fun YouTubeAccountChannelsSyncBanner(
                 },
                 enabled = !isSyncing,
                 shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(38.dp)
                     .testTag("sync_youtube_subscriptions_button")
             ) {
                 if (isSyncing) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(15.dp),
                         strokeWidth = 2.dp,
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("YouTube से सारे चैनल्स व प्लेलिस्ट आ रहे हैं...", fontSize = 12.sp)
+                    Text(
+                        text = "Syncing channels & playlists from YouTube...",
+                        fontSize = 11.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 } else {
-                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = if (hasSession || userProfile.isSignedIn) {
-                            "🔄 मेरे सारे Subscribed Channels व Playlists (A–Z) सिंक करें"
+                            "🔄 Sync Subscribed Channels & Playlists (A–Z)"
                         } else {
-                            "🔗 YouTube लॉगिन करें व सारे चैनल्स (A–Z) लाएं"
+                            "🔗 Sign In to YouTube & Sync Channels (A–Z)"
                         },
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

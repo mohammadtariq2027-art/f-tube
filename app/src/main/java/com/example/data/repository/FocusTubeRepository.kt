@@ -47,21 +47,21 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
     }
 
     /**
-     * Real fetch and add of channel + its videos
+     * Real fetch and add of channel + its videos, verified by Gemini AI Context Shield
      */
     suspend fun fetchAndAddChannelToGroup(rawInput: String, groupId: Long): String = withContext(Dispatchers.IO) {
         val result = YouTubeDataFetcher.fetchChannel(rawInput, maxContinuationPages = 6)
 
-        // Strict Focus Shield validation: Block entertainment, movies, music, prank, roasts, etc.
         val sampleTitles = result.videos.take(20).map { it.title }
-        val validation = FocusShield.validateChannel(
+        // Gemini AI Context Analysis: Understands true channel intent even if titles have words like "4K", "song", "comedy", or clickbait
+        val aiVerdict = com.example.util.AiContentVerifier.analyzeChannelWithAi(
             channelName = result.channelName,
             handle = result.handle.ifBlank { rawInput },
             description = result.description,
             sampleVideoTitles = sampleTitles
         )
-        if (validation is ValidationResult.Blocked) {
-            throw IllegalArgumentException(validation.reason)
+        if (!aiVerdict.isProductive) {
+            throw IllegalArgumentException("🛡️ Gemini AI Shield (${aiVerdict.detectedCategory}): ${aiVerdict.reason}")
         }
 
         val cleanHandleOrUrl = when {
@@ -78,8 +78,12 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
             )
         )
 
-        // Filter out any casual distraction videos from the feed
-        val safeVideos = result.videos.filterNot { FocusShield.isDistractionVideo(it.title, it.channelName) }
+        // Filter videos with Gemini AI context awareness so useful videos with words like "4K"/"song"/"comedy" are kept
+        // while disguised distractions are removed
+        val safeVideos = com.example.util.AiContentVerifier.filterVideosWithAiContext(
+            videos = result.videos,
+            contextTitle = result.channelName
+        )
 
         if (safeVideos.isNotEmpty()) {
             val existing = dao.getVideosForGroupSnapshot(groupId)
@@ -109,7 +113,7 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
         }
         // Also keep a master entry (groupId = 0L) for PocketTube A-Z channel list
         ensureMasterSubscribedChannel(result.channelName, cleanHandleOrUrl)
-        "${result.channelName} added with ${safeVideos.size} videos (Focus Shield Active)"
+        "${result.channelName} added with ${safeVideos.size} AI-verified videos (${aiVerdict.detectedCategory})"
     }
 
     suspend fun deleteChannel(id: Long) {
@@ -121,13 +125,7 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
     }
 
     /**
-     * Real fetch and add of playlist + its videos
-     * Strictly validates against FocusShield: Rejects music, songs, movies, comedy, and distraction playlists AT THE GATE.
-     */
-    /**
-     * Real fetch and add of playlist + its videos
-     * Strictly validates against FocusShield: Rejects music, songs, movies, comedy, and distraction playlists AT THE GATE.
-     * Fully allows and prioritizes all educational, study, and important playlists.
+     * Real fetch and add of playlist + its videos, verified by Gemini AI Context Shield.
      */
     suspend fun fetchAndAddPlaylist(rawInput: String, customTitle: String = ""): String = withContext(Dispatchers.IO) {
         val trimmedInput = rawInput.trim()
@@ -153,8 +151,12 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
             val vidTitle = info?.title ?: "Video #$singleVidId"
             val vidChannel = info?.channelName ?: "YouTube"
 
-            if (FocusShield.isDistractionVideo(vidTitle, vidChannel)) {
-                throw IllegalArgumentException("🛡️ Focus Shield: This video matches music/distraction content and cannot be added.")
+            val aiVerdict = com.example.util.AiContentVerifier.analyzeVideoWithAi(
+                title = vidTitle,
+                channelName = vidChannel
+            )
+            if (!aiVerdict.isProductive) {
+                throw IllegalArgumentException("🛡️ Gemini AI Shield (${aiVerdict.detectedCategory}): ${aiVerdict.reason}")
             }
 
             val plTitle = if (customTitle.isNotBlank()) customTitle.trim() else "$vidTitle (Playlist)"
@@ -180,7 +182,7 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                     publishedTimestamp = System.currentTimeMillis()
                 )
             )
-            return@withContext "Playlist '$plTitle' created with video '$vidTitle'."
+            return@withContext "Playlist '$plTitle' created with AI-verified video '$vidTitle' (${aiVerdict.detectedCategory})."
         }
 
         // Case 3: Standard YouTube playlist URL or Playlist ID
@@ -206,22 +208,25 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
             rawTitle
         }
 
-        // Strict Focus Shield Gate: Validate playlist title, sample video titles, AND channel names
+        // Gemini AI Context Gate: Validate playlist title, sample video titles, AND channel names semantically
         val sampleTitles = result.videos.take(30).map { it.title }
         val sampleChannels = result.videos.take(30).map { it.channelName }
-        val validation = FocusShield.validatePlaylist(
+        val aiVerdict = com.example.util.AiContentVerifier.analyzePlaylistWithAi(
             playlistTitle = finalTitle,
             sampleVideoTitles = sampleTitles,
             sampleChannelNames = sampleChannels
         )
-        if (validation is ValidationResult.Blocked) {
-            throw IllegalArgumentException(validation.reason)
+        if (!aiVerdict.isProductive) {
+            throw IllegalArgumentException("🛡️ Gemini AI Shield (${aiVerdict.detectedCategory}): ${aiVerdict.reason}")
         }
 
-        // Filter individual videos with both title and channelName to ensure zero music/distraction videos slip in
-        val safeVideos = result.videos.filterNot { FocusShield.isDistractionVideo(it.title, it.channelName) }
+        // Filter individual videos with Gemini AI context awareness so useful videos with words like "4K"/"song" are kept
+        val safeVideos = com.example.util.AiContentVerifier.filterVideosWithAiContext(
+            videos = result.videos,
+            contextTitle = finalTitle
+        )
         if (safeVideos.isEmpty() && result.videos.isNotEmpty()) {
-            throw IllegalArgumentException("🛡️ Focus Shield: All videos in this playlist were identified as music/entertainment. Distraction playlists are not allowed.")
+            throw IllegalArgumentException("🛡️ Gemini AI Shield: All videos in this playlist were identified as entertainment distractions.")
         }
 
         val isFirst = false
@@ -261,7 +266,7 @@ class FocusTubeRepository(private val dao: FocusTubeDao) {
                 }
             }
         }
-        "'$finalTitle' added with ${safeVideos.size} videos (Focus Shield Active)"
+        "'$finalTitle' added with ${safeVideos.size} AI-verified videos (${aiVerdict.detectedCategory})"
     }
 
     suspend fun syncPlaylistVideos(playlistId: String): Result<Int> = withContext(Dispatchers.IO) {

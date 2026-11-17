@@ -167,7 +167,7 @@ object AutoBackupHelper {
             try {
                 val json = context.contentResolver.openInputStream(uri)?.use { input ->
                     input.bufferedReader(Charsets.UTF_8).readText()
-                } ?: return@withContext Result.failure(Exception("Google Drive फ़ाइल नहीं पढ़ी जा सकी"))
+                } ?: return@withContext Result.failure(Exception("Could not read Google Drive file"))
                 repository.importBackupJson(json, replaceExisting = false)
             } catch (e: Exception) {
                 Result.failure(e)

@@ -72,7 +72,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 val restored = com.example.util.AutoBackupHelper.checkAndAutoRestoreIfEmpty(application, repository)
                 if (restored) {
-                    _statusMessage.value = "🔄 पिछला बैकअप मिला! सभी ग्रुप्स, चैनल्स और प्लेलिस्ट रीस्टोर कर दिए गए हैं।"
+                    _statusMessage.value = "🔄 Previous backup found! All groups, channels, and playlists have been restored."
                 }
                 com.example.util.AutoBackupHelper.initializeBackupStatus(application, repository)
             } catch (e: Exception) {
@@ -431,10 +431,6 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
             addChannelToGroup(trimmedInput, groupId)
             return
         }
-        if (title.isNotBlank() && com.example.util.FocusShield.isDistractionVideo(title, channelName)) {
-            _statusMessage.value = "🛡️ Focus Shield: यह टाइम-वेस्ट/म्यूजिक/कॉमेडी वीडियो है, इसलिए ब्लॉक किया गया।"
-            return
-        }
         viewModelScope.launch(Dispatchers.IO) {
             val id = FocusTubeRepository.extractVideoId(trimmedInput) ?: trimmedInput
             if (id.isNotBlank()) {
@@ -450,9 +446,13 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                 }
 
-                // Only block if user did not specify a custom study title AND metadata is an explicit song/movie/comedy/roast
-                if (title.isBlank() && com.example.util.FocusShield.isDistractionVideo(finalTitle, finalChannel)) {
-                    _statusMessage.value = "🛡️ Focus Shield: यह गाना/मूवी/कॉमेडी/रोस्ट वीडियो है, इसलिए ब्लॉक किया गया।"
+                // Gemini AI Context Analysis: Understands true intent even if title has words like "4K", "song", "comedy", or clickbait
+                val aiVerdict = com.example.util.AiContentVerifier.analyzeVideoWithAi(
+                    title = finalTitle.ifBlank { id },
+                    channelName = finalChannel
+                )
+                if (!aiVerdict.isProductive) {
+                    _statusMessage.value = "🛡️ Gemini AI Shield (${aiVerdict.detectedCategory}): ${aiVerdict.reason}"
                     return@launch
                 }
 
@@ -470,9 +470,9 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                     )
                 )
                 if (rowId == -1L) {
-                    _statusMessage.value = "⚠️ यह वीडियो इस ग्रुप में पहले से मौजूद है!"
+                    _statusMessage.value = "⚠️ This video is already in this group!"
                 } else {
-                    _statusMessage.value = "✅ काम/पढ़ाई की वीडियो '${finalTitle.ifBlank { id }}' ग्रुप में जुड़ गई!"
+                    _statusMessage.value = "✅ AI Verified (${aiVerdict.detectedCategory}): Added '${finalTitle.ifBlank { id }}' to group!"
                     com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
                 }
             }
@@ -481,17 +481,13 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun addVideoToPlaylist(playlistId: String, title: String, channelName: String, videoUrlOrId: String) {
         val trimmedInput = videoUrlOrId.trim()
-        if (title.isNotBlank() && com.example.util.FocusShield.isDistractionVideo(title, channelName)) {
-            _statusMessage.value = "🛡️ Focus Shield: यह टाइम-वेस्ट/म्यूजिक/कॉमेडी वीडियो है, इसलिए ब्लॉक किया गया।"
-            return
-        }
         viewModelScope.launch(Dispatchers.IO) {
             val id = FocusTubeRepository.extractVideoId(trimmedInput) ?: trimmedInput
             if (id.isNotBlank()) {
                 val targetPlaylist = allPlaylists.value.find { it.playlistId == playlistId }
                 val plName = targetPlaylist?.title ?: "Playlist"
                 if (repository.checkVideoExistsInPlaylist(playlistId, id)) {
-                    _statusMessage.value = "⚠️ यह वीडियो '$plName' में पहले से मौजूद है! (Already added)"
+                    _statusMessage.value = "⚠️ This video is already in '$plName'!"
                     return@launch
                 }
 
@@ -508,9 +504,13 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                 }
 
-                // Only block if metadata is an explicit song, movie, comedy, roast, or casual game
-                if (title.isBlank() && com.example.util.FocusShield.isDistractionVideo(finalTitle, finalChannel)) {
-                    _statusMessage.value = "🛡️ Focus Shield: यह गाना/मूवी/कॉमेडी/रोस्ट वीडियो है, इसलिए ब्लॉक किया गया।"
+                // Gemini AI Context Analysis: Allows useful videos even if title mentions "4K"/"song"/"comedy", blocks disguised distractions
+                val aiVerdict = com.example.util.AiContentVerifier.analyzeVideoWithAi(
+                    title = finalTitle.ifBlank { id },
+                    channelName = finalChannel
+                )
+                if (!aiVerdict.isProductive) {
+                    _statusMessage.value = "🛡️ Gemini AI Shield (${aiVerdict.detectedCategory}): ${aiVerdict.reason}"
                     return@launch
                 }
 
@@ -528,7 +528,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                     )
                 )
                 if (rowId == -1L) {
-                    _statusMessage.value = "⚠️ यह वीडियो '$plName' में पहले से मौजूद है! (Already added)"
+                    _statusMessage.value = "⚠️ This video is already in '$plName'!"
                 } else {
                     repository.markPlaylistRecentlyUsed(playlistId)
                     val profile = googleUserProfile.value
@@ -544,9 +544,9 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
 
                     if (syncedToYt) {
                         repository.updateVideoYouTubeSync(rowId, true)
-                        _statusMessage.value = "✅ वीडियो '$plName' और आपकी ओरिजिनल YouTube प्लेलिस्ट दोनों में ऑटो-सेव हो गया!"
+                        _statusMessage.value = "✅ AI Verified (${aiVerdict.detectedCategory}): Saved to '$plName' & synced to YouTube!"
                     } else {
-                        _statusMessage.value = "✅ वीडियो '${finalTitle.ifBlank { id }}' प्लेलिस्ट '$plName' में जुड़ गया!"
+                        _statusMessage.value = "✅ AI Verified (${aiVerdict.detectedCategory}): Added '${finalTitle.ifBlank { id }}' to '$plName'!"
                     }
                     com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
                 }
@@ -555,22 +555,29 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun saveVideoToPlaylist(video: VideoEntity, playlistId: String, andOpenYouTube: Boolean = false, context: android.content.Context? = null) {
-        if (com.example.util.FocusShield.isDistractionVideo(video.title, video.channelName)) {
-            _statusMessage.value = "🛡️ Focus Shield: Cannot save music or distraction video"
-            return
-        }
         viewModelScope.launch {
+            val aiVerdict = withContext(Dispatchers.IO) {
+                com.example.util.AiContentVerifier.analyzeVideoWithAi(
+                    title = video.title,
+                    channelName = video.channelName,
+                    description = video.description
+                )
+            }
+            if (!aiVerdict.isProductive) {
+                _statusMessage.value = "🛡️ Gemini AI Shield (${aiVerdict.detectedCategory}): ${aiVerdict.reason}"
+                return@launch
+            }
             val targetPlaylist = allPlaylists.value.find { it.playlistId == playlistId }
             val plName = targetPlaylist?.title ?: "Playlist"
             if (repository.checkVideoExistsInPlaylist(playlistId, video.videoId)) {
                 repository.markPlaylistRecentlyUsed(playlistId)
-                _statusMessage.value = "⚠️ यह वीडियो '$plName' में पहले से मौजूद है! (Already added)"
+                _statusMessage.value = "⚠️ This video is already in '$plName'!"
                 return@launch
             }
             val rowId = repository.copyVideoToPlaylist(video, playlistId)
             if (rowId == -1L) {
                 repository.markPlaylistRecentlyUsed(playlistId)
-                _statusMessage.value = "⚠️ यह वीडियो '$plName' में पहले से मौजूद है! (Already added)"
+                _statusMessage.value = "⚠️ This video is already in '$plName'!"
                 return@launch
             }
             repository.markPlaylistRecentlyUsed(playlistId)
@@ -589,9 +596,9 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
 
             if (syncedToYt) {
                 repository.updateVideoYouTubeSync(rowId, true)
-                _statusMessage.value = "✅ '${video.title}' ऐप और आपकी ओरिजिनल YouTube प्लेलिस्ट ('$plName') दोनों में ऑटो-सेव हो गया!"
+                _statusMessage.value = "✅ Saved '${video.title}' to '$plName' & auto-synced to YouTube!"
             } else if (isRealYtPlaylist) {
-                _statusMessage.value = "✓ '$plName' में सेव हो गया! (ओरिजिनल YouTube में ऑटो-सेव के लिए ऊपर Google आइकन में 'YouTube Auto-Save' 1 बार चालू करें)"
+                _statusMessage.value = "✓ Saved to '$plName'! (Enable 'YouTube Auto-Save' in the Google icon to sync to YouTube)"
             } else {
                 _statusMessage.value = "Saved '${video.title}' to '$plName'"
             }
@@ -605,13 +612,9 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun moveVideoToPlaylist(video: VideoEntity, targetPlaylistId: String) {
-        if (com.example.util.FocusShield.isDistractionVideo(video.title, video.channelName)) {
-            _statusMessage.value = "🛡️ Focus Shield: Cannot move music or distraction video"
-            return
-        }
         if (video.playlistId == targetPlaylistId) {
             val targetPl = allPlaylists.value.find { it.playlistId == targetPlaylistId }
-            _statusMessage.value = "⚠️ यह वीडियो पहले से ही '${targetPl?.title ?: "इस प्लेलिस्ट"}' में है"
+            _statusMessage.value = "⚠️ This video is already in '${targetPl?.title ?: "this playlist"}'"
             return
         }
         viewModelScope.launch {
@@ -635,17 +638,24 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
             if (syncedToYt && newRowId != -1L) {
                 repository.updateVideoYouTubeSync(newRowId, true)
             }
-            _statusMessage.value = "📦 '${video.title}' को '$plName' प्लेलिस्ट में मूव कर दिया गया!"
+            _statusMessage.value = "📦 Moved '${video.title}' to playlist '$plName'!"
             com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
         }
     }
 
     fun createPlaylistAndSaveVideo(title: String, video: VideoEntity, andOpenYouTube: Boolean = false, context: android.content.Context? = null) {
-        if (com.example.util.FocusShield.isDistractionVideo(video.title, video.channelName)) {
-            _statusMessage.value = "🛡️ Focus Shield: Cannot save music or distraction video"
-            return
-        }
         viewModelScope.launch {
+            val aiVerdict = withContext(Dispatchers.IO) {
+                com.example.util.AiContentVerifier.analyzeVideoWithAi(
+                    title = video.title,
+                    channelName = video.channelName,
+                    description = video.description
+                )
+            }
+            if (!aiVerdict.isProductive) {
+                _statusMessage.value = "🛡️ Gemini AI Shield (${aiVerdict.detectedCategory}): ${aiVerdict.reason}"
+                return@launch
+            }
             val cleanTitle = title.trim().ifBlank { "My Saved Videos" }
             val profile = googleUserProfile.value
             val createdYtPlaylistId = com.example.util.YouTubeSyncHelper.autoCreateYouTubePlaylist(
@@ -663,7 +673,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
             }
             repository.markPlaylistRecentlyUsed(finalPlaylistId)
             _statusMessage.value = if (createdYtPlaylistId != null) {
-                "✅ नई प्लेलिस्ट '$cleanTitle' आपकी ऐप और ओरिजिनल YouTube दोनों में बनकर वीडियो सेव हो गया!"
+                "✅ Created playlist '$cleanTitle' in FocusTube & YouTube and saved video!"
             } else {
                 "Created '$cleanTitle' and saved video"
             }
@@ -714,7 +724,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
         if (opened) {
             viewModelScope.launch {
                 repository.markAllPlaylistVideosSynced(playlistId)
-                _statusMessage.value = "⚡ YouTube ऐप खुला! ऊपर '+' (Save) दबाकर 1 क्लिक में अपनी प्लेलिस्ट में जोड़ें।"
+                _statusMessage.value = "⚡ YouTube App opened! Tap '+' (Save) at the top to save all videos in 1 click."
                 com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
             }
         }
@@ -743,7 +753,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                 _currentPlayingVideo.value = _currentPlayingVideo.value?.copy(notes = notes)
             }
             com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository)
-            _statusMessage.value = "✓ नोट इस वीडियो के साथ लिंक होकर सेव और ऑटो-बैकअप हो गया!"
+            _statusMessage.value = "✓ Note linked to this video, saved, and backed up!"
         }
     }
 
@@ -831,7 +841,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
     fun onGoogleAccountPicked(email: String) {
         viewModelScope.launch {
             accountManager.saveUserProfile(email)
-            _statusMessage.value = "✓ असली Google अकाउंट कनेक्ट हो गया: $email"
+            _statusMessage.value = "✓ Connected Google Account: $email"
             com.example.util.NightlySyncScheduler.performNightlySync(getApplication(), repository, accountManager, viewModelScope)
         }
     }
@@ -839,7 +849,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
     fun onYouTubeSessionConnected(oauthToken: String = "") {
         viewModelScope.launch {
             accountManager.updateYouTubeAutoSaveSession(oauthToken)
-            _statusMessage.value = "✅ YouTube ओरिजिनल प्लेलिस्ट Auto-Save सक्रिय हो गया! सभी अनसिंक्ड वीडियो YouTube में सेव हो रहे हैं..."
+            _statusMessage.value = "✅ YouTube Playlist Auto-Save enabled! Syncing unsaved videos to YouTube..."
             com.example.util.NightlySyncScheduler.performNightlySync(getApplication(), repository, accountManager, viewModelScope) { msg ->
                 _statusMessage.value = msg
             }
@@ -850,7 +860,7 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             accountManager.saveGoogleDriveBackupUri(getApplication(), uri)
             com.example.util.AutoBackupHelper.triggerAutoBackup(getApplication(), repository, uri.toString())
-            _statusMessage.value = "☁️ Google Drive ऑटो-बैकअप फ़ाइल जुड़ गई! सारे वीडियो व नोट्स सेव हो गए।"
+            _statusMessage.value = "☁️ Google Drive auto-backup file linked! All videos & notes saved."
         }
     }
 
@@ -862,10 +872,10 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
                 val result = com.example.util.AutoBackupHelper.restoreFromGoogleDriveUri(getApplication(), repository, uri)
                 result.fold(
                     onSuccess = { count ->
-                        _statusMessage.value = "✓ Google Drive से $count आइटम (ग्रुप्स, प्लेलिस्ट व नोट्स) रीस्टोर हो गए!"
+                        _statusMessage.value = "✓ Restored $count items (groups, playlists & notes) from Google Drive!"
                     },
                     onFailure = { err ->
-                        _statusMessage.value = "Google Drive रीस्टोर विफल: ${err.localizedMessage ?: "अमान्य फ़ाइल"}"
+                        _statusMessage.value = "Google Drive restore failed: ${err.localizedMessage ?: "Invalid file"}"
                     }
                 )
             } finally {
@@ -877,14 +887,14 @@ class FocusTubeViewModel(application: Application) : AndroidViewModel(applicatio
     fun signOutGoogle() {
         viewModelScope.launch {
             accountManager.signOut()
-            _statusMessage.value = "Google अकाउंट से लॉगआउट कर दिया गया"
+            _statusMessage.value = "Signed out of Google Account"
         }
     }
 
     fun toggleNightlySync(enabled: Boolean) {
         viewModelScope.launch {
             accountManager.setNightlySync(enabled)
-            _statusMessage.value = if (enabled) "🌙 रोज़ रात को ऑटो-सिंक सक्रिय है" else "रात का ऑटो-सिंक बंद किया गया"
+            _statusMessage.value = if (enabled) "🌙 Nightly Auto-Sync enabled" else "Nightly Auto-Sync disabled"
         }
     }
 

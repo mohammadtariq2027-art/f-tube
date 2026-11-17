@@ -49,6 +49,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -80,12 +81,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -130,11 +133,13 @@ fun PlaylistDetailScreen(
     onOpenDashboardTab: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
     // Search target mode: "BOTH" (Videos + Notes), "NOTES_ONLY", "VIDEOS_ONLY"
     var searchTargetMode by remember { mutableStateOf("BOTH") }
     var showSyncAssistantDialog by remember { mutableStateOf(false) }
+    var videoPendingDelete by remember { mutableStateOf<VideoEntity?>(null) }
 
     // Drag-and-Drop State for Moving Videos Between Playlists
     var activeDraggedVideo by remember { mutableStateOf<VideoEntity?>(null) }
@@ -247,7 +252,7 @@ fun PlaylistDetailScreen(
                             onValueChange = { searchQuery = it },
                             placeholder = {
                                 Text(
-                                    "🧠 AI Smart Search: रफ आईडिया, टॉपिक, या टाइम (जैसे 6 min) लिखें...",
+                                    "🧠 AI Smart Search: type idea, topic, or time (e.g. 6 min)...",
                                     fontSize = 11.sp
                                 )
                             },
@@ -377,7 +382,7 @@ fun PlaylistDetailScreen(
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "🧠 AI Smart Search सक्रिय: पूरा शब्द याद न हो तो भी रफ आईडिया (हिंदी/Hinglish/English या ~6 min) लिखें — AI अर्थ समझकर वीडियो और नोट ढूंढ देगा:",
+                        text = "🧠 AI Smart Search Active: Type any topic, keyword, or approximate timestamp (e.g. ~6 min) to find videos & scene notes:",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
@@ -392,21 +397,21 @@ fun PlaylistDetailScreen(
                             FilterChip(
                                 selected = searchTargetMode == "BOTH",
                                 onClick = { searchTargetMode = "BOTH" },
-                                label = { Text("🔍 दोनों: वीडियो + नोट्स (${filteredVideos.size})", fontSize = 11.sp) }
+                                label = { Text("🔍 Both: Videos + Notes (${filteredVideos.size})", fontSize = 11.sp) }
                             )
                         }
                         item {
                             FilterChip(
                                 selected = searchTargetMode == "NOTES_ONLY",
                                 onClick = { searchTargetMode = "NOTES_ONLY" },
-                                label = { Text("📝 सिर्फ नोट्स / सीन टाइम", fontSize = 11.sp) }
+                                label = { Text("📝 Notes / Timestamps Only", fontSize = 11.sp) }
                             )
                         }
                         item {
                             FilterChip(
                                 selected = searchTargetMode == "VIDEOS_ONLY",
                                 onClick = { searchTargetMode = "VIDEOS_ONLY" },
-                                label = { Text("🎬 सिर्फ वीडियो", fontSize = 11.sp) }
+                                label = { Text("🎬 Videos Only", fontSize = 11.sp) }
                             )
                         }
                     }
@@ -430,9 +435,9 @@ fun PlaylistDetailScreen(
                     ) {
                         Text(
                             text = if (isDragging) {
-                                "📦 '${activeDraggedVideo?.title}' को जिस प्लेलिस्ट में मूव करना है उस पर ड्रॉप करें:"
+                                "📦 Drop '${activeDraggedVideo?.title}' onto any playlist below to move it:"
                             } else {
-                                "🖐️ Drag & Drop: वीडियो के '⠿' हैंडल को पकड़कर दूसरी प्लेलिस्ट में मूव करें:"
+                                "🖐️ Drag & Drop: Hold a video's '⠿' handle to move it to another playlist:"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
@@ -538,7 +543,7 @@ fun PlaylistDetailScreen(
                                             color = Color(0xFF1B5E20).copy(alpha = 0.2f)
                                         ) {
                                             Text(
-                                                text = "स्थायी लॉगिन",
+                                                text = "Connected",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color(0xFF2E7D32),
@@ -548,7 +553,7 @@ fun PlaylistDetailScreen(
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "🌙 रोज़ रात को ऑटो-सिंक सक्रिय है। आपकी प्लेलिस्ट हमेशा सुरक्षित रहेगी।",
+                                        text = "🌙 Nightly auto-sync is active. Your playlists stay backed up automatically.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -566,7 +571,7 @@ fun PlaylistDetailScreen(
                                         ) {
                                             Icon(imageVector = Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
                                             Spacer(modifier = Modifier.width(6.dp))
-                                            Text("🔄 अभी सिंक करें", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            Text("🔄 Sync Now", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
                                         OutlinedButton(
                                             onClick = onOpenGoogleAccount,
@@ -574,7 +579,7 @@ fun PlaylistDetailScreen(
                                             shape = RoundedCornerShape(8.dp),
                                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                                         ) {
-                                            Text("अकाउंट सेटिंग्स", fontSize = 12.sp)
+                                            Text("Account Settings", fontSize = 12.sp)
                                         }
                                     }
                                 }
@@ -600,14 +605,14 @@ fun PlaylistDetailScreen(
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "Google अकाउंट लॉगिन (स्थायी ऑटो-सिंक)",
+                                            text = "Google Account Sign-In (Auto-Sync)",
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "सिर्फ 1 बार लॉगिन करें — फिर रोज़ रात को अपने आप बैकअप व सिंक होगा। दोबारा लॉगिन की कभी ज़रूरत नहीं पड़ेगी।",
+                                        text = "Sign in once — your playlists and notes will automatically back up and sync every night.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -619,7 +624,7 @@ fun PlaylistDetailScreen(
                                     ) {
                                         Icon(imageVector = Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Google अकाउंट से लॉगिन करें ↗", fontWeight = FontWeight.Bold)
+                                        Text("Sign In with Google ↗", fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -662,7 +667,7 @@ fun PlaylistDetailScreen(
                                     ) {
                                         Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("⚡ YouTube ऐप में 1-क्लिक में कतार खोलें ↗", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text("⚡ Open Queue in YouTube App (1-Click) ↗", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -777,7 +782,10 @@ fun PlaylistDetailScreen(
                                         onDragCancel = { activeDraggedVideo = null }
                                     )
                                 }
-                                .clickable { onSelectVideo(video) },
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onSelectVideo(video)
+                                },
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(
                                 containerColor = when {
@@ -795,9 +803,9 @@ fun PlaylistDetailScreen(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .width(160.dp)
+                                        .width(132.dp)
                                         .aspectRatio(16f / 9f)
-                                        .clip(RoundedCornerShape(11.dp))
+                                        .clip(RoundedCornerShape(10.dp))
                                         .background(Color.Black)
                                 ) {
                                     AsyncImage(
@@ -1124,7 +1132,7 @@ fun PlaylistDetailScreen(
                                         ) {
                                             if (noteMatchedSearch) {
                                                 Text(
-                                                    text = "👆 नीचे टाइम बैज पर टैप करते ही वीडियो सीधे उसी सीन से चलेगी:",
+                                                    text = "👆 Tap any timestamp badge below to jump directly to that scene:",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = Color(0xFFE65100),
                                                     fontSize = 9.sp,
@@ -1188,7 +1196,7 @@ fun PlaylistDetailScreen(
                                             }
                                             if (parsedCardNotes.size > notesToShowOnCard.size) {
                                                 Text(
-                                                    text = "+ ${parsedCardNotes.size - notesToShowOnCard.size} और सीन नोट्स...",
+                                                    text = "+ ${parsedCardNotes.size - notesToShowOnCard.size} more scene notes...",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = Color(0xFFE65100),
                                                     fontSize = 9.sp,
@@ -1234,8 +1242,13 @@ fun PlaylistDetailScreen(
                                     }
 
                                     IconButton(
-                                        onClick = { onDeleteVideo(video.id) },
-                                        modifier = Modifier.size(32.dp)
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            videoPendingDelete = video
+                                        },
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .testTag("delete_playlist_video_button_${video.id}")
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.Delete,
@@ -1307,7 +1320,7 @@ fun PlaylistDetailScreen(
                             text = if (targetPlName != null) {
                                 "📥 Drop to move to '$targetPlName'"
                             } else {
-                                "🖐️ ऊपर किसी भी प्लेलिस्ट पर ड्रॉप करें"
+                                "🖐️ Drop onto any playlist chip at the top"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             fontSize = 10.sp,
@@ -1339,6 +1352,55 @@ fun PlaylistDetailScreen(
                 },
                 onShareAllLinks = {
                     YouTubeSyncHelper.sharePlaylistVideos(context, playlist.title, videos)
+                }
+            )
+        }
+
+        // Confirmation Dialog before deleting a video from the playlist
+        videoPendingDelete?.let { vidToDelete ->
+            AlertDialog(
+                onDismissRequest = { videoPendingDelete = null },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Delete Video?",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Are you sure you want to delete '${vidToDelete.title}' from the '${playlist.title}' playlist?"
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onDeleteVideo(vidToDelete.id)
+                            videoPendingDelete = null
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        ),
+                        modifier = Modifier.testTag("confirm_delete_video_button")
+                    ) {
+                        Text("Yes, Delete", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { videoPendingDelete = null },
+                        modifier = Modifier.testTag("cancel_delete_video_button")
+                    ) {
+                        Text("Cancel")
+                    }
                 }
             )
         }
@@ -1416,7 +1478,7 @@ fun YouTubeSyncAssistantDialog(
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "⚡ 1-Click Batch Sync (अनुशंसित)",
+                                text = "⚡ 1-Click Batch Sync (Recommended)",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -1424,7 +1486,7 @@ fun YouTubeSyncAssistantDialog(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "एक ही क्लिक में YouTube ऐप में सभी वीडियो की कतार (Queue) खुलेगी। ऊपर '+' (Save) बटन दबाते ही सभी वीडियो आपकी YouTube प्लेलिस्ट में एक साथ सेव हो जाएंगे!",
+                            text = "Opens a queue of all unsynced videos in the official YouTube app with 1 click so you can save them to your YouTube playlist.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
                         )
@@ -1440,7 +1502,7 @@ fun YouTubeSyncAssistantDialog(
                         ) {
                             Icon(imageVector = Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("YouTube ऐप में 1 क्लिक में सिंक करें ↗", fontWeight = FontWeight.Bold)
+                            Text("Sync in YouTube App (1-Click) ↗", fontWeight = FontWeight.Bold)
                         }
                     }
                 }

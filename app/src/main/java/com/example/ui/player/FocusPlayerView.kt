@@ -2,8 +2,10 @@ package com.example.ui.player
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.media.AudioManager
 import android.os.SystemClock
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
@@ -17,16 +19,24 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Arrangement
@@ -35,10 +45,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,19 +62,27 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.StayCurrentLandscape
+import androidx.compose.material.icons.filled.StayCurrentPortrait
 import androidx.compose.material.icons.outlined.CheckCircle
+import kotlinx.coroutines.delay
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -80,6 +100,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -96,10 +118,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
@@ -107,6 +132,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -153,6 +179,13 @@ fun parseTimestampToSeconds(rawTimestamp: String): Int? {
     }
 }
 
+fun parseDurationStringToSeconds(rawDuration: String, videoId: String): Int {
+    val cleanDur = com.example.util.DurationUtils.formatCleanDuration(rawDuration, videoId)
+    val parsed = parseTimestampToSeconds(cleanDur)
+    if (parsed != null && parsed > 0) return parsed
+    return parseTimestampToSeconds(rawDuration) ?: 0
+}
+
 private val TIMESTAMP_LINE_REGEX = Regex("""^\s*(?:\[|\()?\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*(?:\]|\))?\s*[-–:—]?\s*(.*)$""")
 private val ANYWHERE_TIMESTAMP_REGEX = Regex("""(?:\[|\()?(\d{1,2}:\d{2}(?::\d{2})?)(?:\]|\))?""")
 
@@ -166,7 +199,7 @@ fun parseSceneNotes(notesText: String): List<SceneNoteEntry> {
             if (startMatch != null) {
                 val tsStr = startMatch.groupValues[1]
                 val sec = parseTimestampToSeconds(tsStr)
-                val body = startMatch.groupValues[2].trim().ifBlank { "सीन नोट ($tsStr)" }
+                val body = startMatch.groupValues[2].trim().ifBlank { "Scene Note ($tsStr)" }
                 SceneNoteEntry(
                     lineIndex = idx,
                     rawLine = trimmed,
@@ -248,6 +281,13 @@ fun FocusPlayerView(
     var currentPlaybackSeconds by remember(video.videoId, initialSeekSeconds) {
         mutableStateOf(initialSeekSeconds?.coerceAtLeast(0) ?: 0)
     }
+    var videoDurationSeconds by remember(video.videoId, video.duration) {
+        mutableStateOf(parseDurationStringToSeconds(video.duration, video.videoId))
+    }
+    var isVideoPlaying by remember(video.videoId) { mutableStateOf(false) }
+    var isScrubbingSeekBar by remember(video.videoId) { mutableStateOf(false) }
+    var scrubSliderSeconds by remember(video.videoId) { mutableFloatStateOf(0f) }
+    var lastLiveSeekDispatchMs by remember(video.videoId) { mutableStateOf(0L) }
     var seekCommand by remember(video.videoId, initialSeekSeconds) {
         mutableStateOf(
             if (initialSeekSeconds != null && initialSeekSeconds > 0) {
@@ -258,20 +298,24 @@ fun FocusPlayerView(
     var lastSeekFeedback by remember(video.videoId, initialSeekSeconds) {
         mutableStateOf(
             if (initialSeekSeconds != null && initialSeekSeconds > 0) {
-                "▶ सीन [${formatSecondsToTimestamp(initialSeekSeconds)}] से वीडियो चालू हो गई!"
+                "▶ Playing from scene [${formatSecondsToTimestamp(initialSeekSeconds)}]!"
             } else null
         )
     }
     var quickSceneTimestampInput by remember(video.videoId) { mutableStateOf("0:00") }
     var isQuickTimestampLocked by remember(video.videoId) { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+    var isTitleExpanded by remember(video.videoId) { mutableStateOf(false) }
     var quickSceneNoteText by remember(video.videoId) { mutableStateOf("") }
     var isFullscreenNoteDrawerOpen by remember(video.videoId) { mutableStateOf(false) }
     var sceneNoteSearchQuery by remember(video.videoId) { mutableStateOf("") }
     var isSceneNoteSearchActive by remember(video.videoId) { mutableStateOf(false) }
+    var isCompleted by remember(video.id, video.isCompleted) { mutableStateOf(video.isCompleted) }
     var isDescriptionExpanded by remember { mutableStateOf(false) }
     var currentDescription by remember(video.id) { mutableStateOf(video.description) }
     var showSaveToPlaylistDialog by remember { mutableStateOf(false) }
     var showNotesDialog by remember { mutableStateOf(false) }
+    var showDeleteVideoConfirmDialog by remember { mutableStateOf(false) }
     val existingNoteFromAllVideos = remember(video.videoId, video.notes, allSavedVideos) {
         if (video.notes.isNotBlank()) video.notes
         else allSavedVideos.firstOrNull { it.videoId == video.videoId && it.notes.isNotBlank() }?.notes.orEmpty()
@@ -305,10 +349,12 @@ fun FocusPlayerView(
     }
 
     fun jumpToSceneTimestamp(seconds: Int, label: String) {
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         isVideoEnded = false
         currentPlaybackSeconds = seconds
+        scrubSliderSeconds = seconds.toFloat()
         seekCommand = VideoSeekCommand(seconds = seconds)
-        lastSeekFeedback = "▶ सीन [$label] से वीडियो चालू हो गई!"
+        lastSeekFeedback = "▶ Playing from scene [$label]!"
     }
 
     fun addSceneNoteEntry(timestampStr: String, noteContent: String) {
@@ -357,29 +403,97 @@ fun FocusPlayerView(
     }
     val isVerticalVideo = detectedPortraitFromPlayer ?: isMetadataPortrait
 
-    // Every video automatically opens in Fullscreen according to its orientation:
-    // - Portrait videos open in Portrait Fullscreen
-    // - Landscape videos open in Landscape Fullscreen
-    var isAppFullscreen by remember(video.videoId) { mutableStateOf(true) }
+    // Clicking a video opens the full Video Page first (with Description, Save to Playlist, Notes & all options).
+    // When the user taps Fullscreen, it enters Fullscreen in Portrait or Landscape according to video orientation.
+    var isAppFullscreen by remember(video.videoId) { mutableStateOf(false) }
 
-    // Automatic Fullscreen Zoom-to-Fill (eliminates black bars on sides and top/bottom by default
-    // using inner HTML5 <video> object-fit: cover + subtle edge-bleed scale so controls stay visible)
-    // Modes: "AUTO_FILL" (default crop-to-fill, zero black bars), "ULTRA_FILL" (deep zoom), "FIT_ORIGINAL" (1.0x)
-    var fullscreenZoomMode by remember(video.videoId) { mutableStateOf("AUTO_FILL") }
-    val targetZoomScale = if (!isAppFullscreen) {
-        1.0f
-    } else {
-        when (fullscreenZoomMode) {
-            "AUTO_FILL" -> 1.06f
-            "ULTRA_FILL" -> 1.18f
-            else -> 1.0f
-        }
-    }
+    // Two-Finger Pinch-to-Zoom state (1.0f = original fit, pinch out with 2 fingers up to 2.5f zoom in, pinch in to zoom out)
+    var pinchZoomScale by remember(video.videoId) { mutableFloatStateOf(1.0f) }
+    var isActivelyPinching by remember(video.videoId) { mutableStateOf(false) }
+    val targetZoomScale = if (!isAppFullscreen) 1.0f else pinchZoomScale
     val animatedZoomScale by animateFloatAsState(
         targetValue = targetZoomScale,
-        animationSpec = tween(durationMillis = 220),
-        label = "fullscreenAutoZoomScale"
+        animationSpec = tween(durationMillis = if (isActivelyPinching) 30 else 150),
+        label = "fullscreenPinchZoomScale"
     )
+
+    val context = LocalContext.current
+    fun Context.findActivity(): Activity? {
+        var current = this
+        while (current is ContextWrapper) {
+            if (current is Activity) return current
+            current = current.baseContext
+        }
+        return null
+    }
+    val activity = remember(context) { context.findActivity() }
+    val audioManager = remember(context) {
+        context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    }
+
+    // Left Side Vertical Seek Bar: Brightness State (0.05f .. 1.0f)
+    var playerBrightness by remember {
+        val currentWinBrightness = activity?.window?.attributes?.screenBrightness ?: -1f
+        mutableFloatStateOf(if (currentWinBrightness in 0.05f..1.0f) currentWinBrightness else 0.85f)
+    }
+    var isAdjustingBrightness by remember { mutableStateOf(false) }
+
+    // Right Side Vertical Seek Bar: Volume State (0.0f .. 1.0f)
+    var playerVolume by remember {
+        val maxVol = (audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15).coerceAtLeast(1)
+        val curVol = (audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 11).coerceIn(0, maxVol)
+        mutableFloatStateOf((curVol.toFloat() / maxVol.toFloat()).coerceIn(0f, 1f))
+    }
+    var isAdjustingVolume by remember { mutableStateOf(false) }
+
+    fun applyPlayerBrightness(newBrightness: Float) {
+        val clamped = newBrightness.coerceIn(0.05f, 1.0f)
+        playerBrightness = clamped
+        try {
+            activity?.window?.let { win ->
+                val lp = win.attributes
+                lp.screenBrightness = clamped
+                win.attributes = lp
+            }
+        } catch (_: Exception) {}
+    }
+
+    fun applyPlayerVolume(newVolume: Float) {
+        val clamped = newVolume.coerceIn(0f, 1f)
+        playerVolume = clamped
+        try {
+            audioManager?.let { am ->
+                val maxV = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                val targetIndex = (clamped * maxV).roundToInt().coerceIn(0, maxV)
+                am.setStreamVolume(AudioManager.STREAM_MUSIC, targetIndex, 0)
+            }
+        } catch (_: Exception) {}
+    }
+
+    // Double-Tap Visual Feedback State (-1 = Left -10s, 0 = Center Play/Pause, 1 = Right +10s)
+    var doubleTapFeedbackZone by remember { mutableStateOf<Int?>(null) }
+    var doubleTapFeedbackTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(doubleTapFeedbackTick) {
+        if (doubleTapFeedbackZone != null) {
+            delay(650L)
+            doubleTapFeedbackZone = null
+        }
+    }
+
+    // Auto-hide player controls & seek bar overlay after ~3.0 seconds of inactivity
+    // Keeps controls visible while scrubbing seek bar or adjusting volume/brightness!
+    var controlsRevealTick by remember(video.videoId) { mutableStateOf(1) }
+    var areFullscreenIconsVisible by remember(video.videoId) { mutableStateOf(true) }
+    val isInteractingWithAnyBar = isScrubbingSeekBar || isAdjustingBrightness || isAdjustingVolume
+    LaunchedEffect(controlsRevealTick, isAppFullscreen, isInteractingWithAnyBar) {
+        areFullscreenIconsVisible = true
+        if (!isInteractingWithAnyBar) {
+            delay(3000L)
+            if (!isScrubbingSeekBar && !isAdjustingBrightness && !isAdjustingVolume) {
+                areFullscreenIconsVisible = false
+            }
+        }
+    }
 
     // Press-and-Hold Dynamic Speed Slide state (2.0x on hold, slide Right -> 2.5x..4.0x, slide Left -> 1.5x..0.5x, release -> 1.0x)
     var isHoldSpeedActive by remember(video.videoId) { mutableStateOf(false) }
@@ -398,17 +512,6 @@ fun FocusPlayerView(
             }
         }
     }
-
-    val context = LocalContext.current
-    fun Context.findActivity(): Activity? {
-        var current = this
-        while (current is ContextWrapper) {
-            if (current is Activity) return current
-            current = current.baseContext
-        }
-        return null
-    }
-    val activity = remember(context) { context.findActivity() }
 
     DisposableEffect(isAppFullscreen, customFullscreenView, isVerticalVideo) {
         val inFullscreen = isAppFullscreen || customFullscreenView != null
@@ -456,10 +559,12 @@ fun FocusPlayerView(
                 customViewCallback = null
             }
             isAppFullscreen -> {
-                onBack()
+                isAppFullscreen = false
             }
         }
     }
+
+    val effectiveDurationSec = maxOf(videoDurationSeconds, currentPlaybackSeconds + 1, 60)
 
     Box(modifier = Modifier.fillMaxSize()) {
     // Continuous Single Player Layout (Seamless fullscreen without unmounting WebView)
@@ -547,29 +652,107 @@ fun FocusPlayerView(
                     pauseTrigger = pauseTrigger,
                     togglePlayPauseTrigger = togglePlayPauseTrigger,
                     seekCommand = seekCommand,
-                    fullscreenZoomMode = if (isAppFullscreen) fullscreenZoomMode else "FIT_ORIGINAL",
+                    fullscreenZoomMode = "FIT_ORIGINAL",
+                    currentZoomScale = animatedZoomScale,
+                    playerVolumePercent = (playerVolume * 100f).roundToInt().coerceIn(0, 100),
+                    isVideoPlaying = isVideoPlaying,
                     onHoldSpeedChanged = { holding, speed ->
+                        if (holding && (!isHoldSpeedActive || abs(speed - activeHoldSpeed) >= 0.2f)) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
                         isHoldSpeedActive = holding
                         activeHoldSpeed = speed
                     },
+                    onPinchZoomChanged = { pinching, scaleDelta ->
+                        isActivelyPinching = pinching
+                        if (pinching && scaleDelta != 1.0f) {
+                            pinchZoomScale = (pinchZoomScale * scaleDelta).coerceIn(1.0f, 2.5f)
+                        }
+                    },
+                    onScreenTapped = {
+                        controlsRevealTick++
+                    },
+                    onDoubleTapAction = { zone ->
+                        // zone: -1 = Left (-10s backward), 0 = Center (Play/Pause), 1 = Right (+10s forward)
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        doubleTapFeedbackZone = zone
+                        doubleTapFeedbackTick++
+                        when (zone) {
+                            -1 -> {
+                                val target = (currentPlaybackSeconds - 10).coerceAtLeast(0)
+                                jumpToSceneTimestamp(target, formatSecondsToTimestamp(target))
+                            }
+                            0 -> {
+                                togglePlayPauseTrigger++
+                            }
+                            1 -> {
+                                val target = (currentPlaybackSeconds + 10).coerceAtMost(effectiveDurationSec)
+                                jumpToSceneTimestamp(target, formatSecondsToTimestamp(target))
+                            }
+                        }
+                    },
+                    onSideVerticalDelta = { side, deltaFraction ->
+                        // side: -1 = Left (Brightness Up/Down), 1 = Right (Volume Up/Down) — completely invisible!
+                        if (side < 0) {
+                            applyPlayerBrightness((playerBrightness + deltaFraction).coerceIn(0.05f, 1.0f))
+                        } else if (side > 0) {
+                            applyPlayerVolume((playerVolume + deltaFraction).coerceIn(0.0f, 1.0f))
+                        }
+                    },
+                    onTimelineSeekRatio = { ratio, isFinished ->
+                        val clampedRatio = ratio.coerceIn(0f, 1f)
+                        val targetSec = (clampedRatio * effectiveDurationSec).roundToInt().coerceIn(0, effectiveDurationSec)
+                        if (!isFinished) {
+                            isScrubbingSeekBar = true
+                            scrubSliderSeconds = clampedRatio * effectiveDurationSec
+                            val nowMs = SystemClock.uptimeMillis()
+                            if (nowMs - lastLiveSeekDispatchMs >= 140L) {
+                                lastLiveSeekDispatchMs = nowMs
+                                currentPlaybackSeconds = targetSec
+                                seekCommand = VideoSeekCommand(seconds = targetSec)
+                            }
+                        } else {
+                            isScrubbingSeekBar = false
+                            jumpToSceneTimestamp(targetSec, formatSecondsToTimestamp(targetSec))
+                            controlsRevealTick++
+                        }
+                    },
                     onCurrentTimeChanged = { sec ->
-                        currentPlaybackSeconds = sec
+                        if (!isScrubbingSeekBar) {
+                            currentPlaybackSeconds = sec
+                            scrubSliderSeconds = sec.toFloat()
+                        }
+                        if (sec > videoDurationSeconds) {
+                            videoDurationSeconds = sec + 30
+                        }
                         if (!isQuickTimestampLocked && quickSceneNoteText.isBlank()) {
                             quickSceneTimestampInput = formatSecondsToTimestamp(sec)
                         }
+                    },
+                    onDurationChanged = { durSec ->
+                        if (durSec > 0) {
+                            videoDurationSeconds = durSec
+                        }
+                    },
+                    onPlayingStateChanged = { playing ->
+                        isVideoPlaying = playing
                     },
                     onVideoOrientationDetected = { isPortrait ->
                         detectedPortraitFromPlayer = isPortrait
                     },
                     onLoadingChanged = { isPlayerLoading = it },
                     onVideoEnded = { isVideoEnded = true },
-                    onShowFullscreen = { view, callback ->
-                        customFullscreenView = view
-                        customViewCallback = callback
+                    onShowFullscreen = { _, callback ->
+                        try {
+                            callback.onCustomViewHidden()
+                        } catch (_: Exception) {}
+                        isAppFullscreen = !isAppFullscreen
+                        controlsRevealTick++
                     },
                     onHideFullscreen = {
                         customFullscreenView = null
                         customViewCallback = null
+                        isAppFullscreen = false
                     },
                     modifier = Modifier
                         .fillMaxSize()
@@ -580,49 +763,111 @@ fun FocusPlayerView(
                         )
                 )
 
-                // === LIVE PRESS-AND-HOLD SPEED SLIDE HUD OVERLAY (0.5x ➔ 1.0x ➔ 1.5x ➔ 2.0x ➔ 2.5x ➔ 3.0x ➔ 3.5x ➔ 4.0x) ===
+                // Software Dimmer Veil so Brightness Control works visually on the video brightness itself
+                val brightnessDimAlpha = ((1f - playerBrightness) * 0.72f).coerceIn(0f, 0.72f)
+                if (brightnessDimAlpha > 0.01f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = brightnessDimAlpha))
+                    )
+                }
+
+                // === DOUBLE-TAP FEEDBACK ANIMATION OVERLAY (Left = -10s, Center = Play/Pause, Right = +10s) ===
+                doubleTapFeedbackZone?.let { zone ->
+                    val alignment = when (zone) {
+                        -1 -> Alignment.CenterStart
+                        1 -> Alignment.CenterEnd
+                        else -> Alignment.Center
+                    }
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = 0.45f),
+                        modifier = Modifier
+                            .align(alignment)
+                            .padding(horizontal = 42.dp)
+                            .border(1.dp, Color.White.copy(alpha = 0.28f), CircleShape)
+                            .testTag("double_tap_feedback_indicator")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                        ) {
+                            when (zone) {
+                                -1 -> {
+                                    Icon(
+                                        imageVector = Icons.Default.FastRewind,
+                                        contentDescription = "10 seconds backward",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "10s",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                1 -> {
+                                    Text(
+                                        text = "10s",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.FastForward,
+                                        contentDescription = "10 seconds forward",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                else -> {
+                                    Icon(
+                                        imageVector = if (isVideoPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = "Play or Pause",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // === TRANSPARENT PRESS-AND-HOLD + SLIDE SPEED INDICATOR (ONLY SHOWN WHILE HOLDING SCREEN) ===
                 if (isHoldSpeedActive) {
                     val speedLevels = remember { listOf(0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f) }
                     Surface(
-                        shape = RoundedCornerShape(18.dp),
-                        color = Color(0xEB0B131E),
-                        shadowElevation = 12.dp,
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.Black.copy(alpha = 0.28f),
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .statusBarsPadding()
-                            .padding(top = 48.dp, start = 16.dp, end = 16.dp)
+                            .padding(top = 18.dp, start = 16.dp, end = 16.dp)
                             .border(
-                                width = 1.5.dp,
-                                color = if (activeHoldSpeed >= 2.0f) Color(0xFF00E676) else Color(0xFF4FC3F7),
-                                shape = RoundedCornerShape(18.dp)
+                                width = 1.dp,
+                                color = Color.White.copy(alpha = 0.28f),
+                                shape = RoundedCornerShape(20.dp)
                             )
                             .testTag("fullscreen_hold_speed_hud")
                     ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = when {
-                                        activeHoldSpeed >= 3.0f -> "🚀 ${activeHoldSpeed}x अल्ट्रा फास्ट (Locked while holding)"
-                                        activeHoldSpeed >= 2.0f -> "⏩ ${activeHoldSpeed}x फास्ट स्पीड (Locked while holding)"
-                                        activeHoldSpeed > 1.0f -> "🏃 ${activeHoldSpeed}x स्पीड"
-                                        activeHoldSpeed == 1.0f -> "▶️ 1.0x नॉर्मल स्पीड"
-                                        else -> "🐢 ${activeHoldSpeed}x स्लो-मोशन"
-                                    },
-                                    color = if (activeHoldSpeed >= 2.0f) Color(0xFF00E676) else Color(0xFF81D4FA),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
+                            Text(
+                                text = "⏩ ${activeHoldSpeed}x",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
 
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
 
-                            // 8-Step Speed Level Track (0.5x .. 4.0x)
+                            // Transparent 8-Step Speed Level Track (0.5x .. 4.0x)
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -631,229 +876,112 @@ fun FocusPlayerView(
                                     val isCurrent = abs(lvl - activeHoldSpeed) < 0.05f
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
-                                        color = when {
-                                            isCurrent && lvl >= 2.0f -> Color(0xFF00C853)
-                                            isCurrent -> Color(0xFF0288D1)
-                                            else -> Color.White.copy(alpha = 0.12f)
+                                        color = if (isCurrent) {
+                                            Color(0xFF00E676).copy(alpha = 0.48f)
+                                        } else {
+                                            Color.White.copy(alpha = 0.10f)
                                         },
                                         modifier = Modifier.border(
-                                            width = if (isCurrent) 1.2.dp else 0.dp,
-                                            color = if (isCurrent) Color.White else Color.Transparent,
+                                            width = if (isCurrent) 1.dp else 0.dp,
+                                            color = if (isCurrent) Color.White.copy(alpha = 0.85f) else Color.Transparent,
                                             shape = RoundedCornerShape(8.dp)
                                         )
                                     ) {
                                         Text(
                                             text = "${lvl}x",
-                                            color = if (isCurrent) Color.White else Color(0xFFB0BEC5),
+                                            color = if (isCurrent) Color.White else Color.White.copy(alpha = 0.72f),
                                             fontSize = if (isCurrent) 11.sp else 9.sp,
-                                            fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                            fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.Medium,
                                             modifier = Modifier.padding(
-                                                horizontal = if (isCurrent) 8.dp else 5.dp,
-                                                vertical = if (isCurrent) 4.dp else 2.dp
+                                                horizontal = if (isCurrent) 7.dp else 4.dp,
+                                                vertical = if (isCurrent) 3.dp else 2.dp
                                             )
                                         )
                                     }
                                 }
                             }
-
-                            Spacer(modifier = Modifier.height(5.dp))
-
-                            Text(
-                                text = "⬅️ बाएं स्लाइड: 1.5x•1.0x•0.5x | दाएं स्लाइड: 2.5x•3x•3.5x•4x ➡️ (उंगली हटाते ही 1x)",
-                                color = Color(0xFFCFD8DC),
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
                         }
                     }
                 }
 
-                // Floating Quick Controls when in app fullscreen (Back, Auto-Orientation Badge, Auto Zoom-Fill Badge, Save to Playlist, Toggleable Note Drawer, Exit Fullscreen)
-                if (isAppFullscreen) {
-                    // Top-Left Back button + Orientation Badge + Auto Zoom-to-Fill (No Black Bars) Badge in Fullscreen
+                // === TRANSPARENT PINCH-TO-ZOOM INDICATOR (ONLY SHOWN WHILE PINCHING WITH 2 FINGERS) ===
+                if (isActivelyPinching && isAppFullscreen) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Black.copy(alpha = 0.28f),
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .border(
+                                width = 1.dp,
+                                color = Color.White.copy(alpha = 0.25f),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                    ) {
+                        Text(
+                            text = "🔍 ${String.format(java.util.Locale.US, "%.1fx", pinchZoomScale)}",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+
+                // === CLEAN AUTO-HIDING FULLSCREEN TOP ICONS (Appears on tap, then hides completely so ONLY video plays) ===
+                val showPlayerOverlays = (areFullscreenIconsVisible || isInteractingWithAnyBar) && !isHoldSpeedActive && !isPlayerLoading && !isVideoEnded
+                val overlayAlpha by animateFloatAsState(
+                    targetValue = if (showPlayerOverlays) 1f else 0f,
+                    animationSpec = tween(durationMillis = 180),
+                    label = "playerOverlayAlpha"
+                )
+
+                if (isAppFullscreen && showPlayerOverlays) {
+                    // Top-Left: Back Icon + Icon-Only Orientation Toggle (No text, no clutter)
                     Row(
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .statusBarsPadding()
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color.Black.copy(alpha = 0.65f)
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.38f)
                         ) {
                             IconButton(
-                                onClick = onBack,
-                                modifier = Modifier.size(38.dp)
+                                onClick = { isAppFullscreen = false },
+                                modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
+                                    contentDescription = "Exit Fullscreen to Video Page",
                                     tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(19.dp)
                                 )
                             }
                         }
 
-                        // Orientation Mode Toggle Pill (Landscape vs Portrait Auto-Fullscreen)
+                        // Icon-Only Orientation Toggle (Portrait / Landscape icon ONLY — zero text!)
                         Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color.Black.copy(alpha = 0.60f),
-                            modifier = Modifier
-                                .clickable {
-                                    detectedPortraitFromPlayer = !isVerticalVideo
-                                }
-                                .testTag("fullscreen_orientation_mode_badge")
-                        ) {
-                            Text(
-                                text = if (isVerticalVideo) "📱 Portrait" else "🖥️ Landscape",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 10.sp,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                            )
-                        }
-
-                        // Auto Zoom-to-Fill (No Black Bars) Mode Pill
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = if (fullscreenZoomMode != "FIT_ORIGINAL") Color(0xFF00695C).copy(alpha = 0.85f)
-                            else Color.Black.copy(alpha = 0.60f),
-                            modifier = Modifier
-                                .clickable {
-                                    fullscreenZoomMode = when (fullscreenZoomMode) {
-                                        "AUTO_FILL" -> "ULTRA_FILL"
-                                        "ULTRA_FILL" -> "FIT_ORIGINAL"
-                                        else -> "AUTO_FILL"
-                                    }
-                                }
-                                .testTag("fullscreen_zoom_fill_badge")
-                        ) {
-                            Text(
-                                text = when (fullscreenZoomMode) {
-                                    "AUTO_FILL" -> "🔍 Auto Zoom-Fill (No Bars)"
-                                    "ULTRA_FILL" -> "🔍 Ultra Fill (1.36x)"
-                                    else -> "🔍 Original Fit (1.0x)"
-                                },
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                            )
-                        }
-                    }
-
-                    // Top-Right Action Bar in Fullscreen (+ Save, Toggleable Pop-Out Note Drawer, Compact View)
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .statusBarsPadding()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color.Black.copy(alpha = 0.65f),
-                            modifier = Modifier.clickable { showSaveToPlaylistDialog = true }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.PlaylistAdd,
-                                    contentDescription = "Save to Playlist",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "+ Save",
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        // Toggle Button for Pop-Out Fullscreen Note Drawer!
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (isFullscreenNoteDrawerOpen) Color(0xFF2E7D32) else Color(0xFFE65100).copy(alpha = 0.92f),
-                            modifier = Modifier
-                                .clickable {
-                                    val opening = !isFullscreenNoteDrawerOpen
-                                    isFullscreenNoteDrawerOpen = opening
-                                    if (opening) {
-                                        pauseTrigger++
-                                        quickSceneTimestampInput = formatSecondsToTimestamp(currentPlaybackSeconds)
-                                        isQuickTimestampLocked = true
-                                    }
-                                }
-                                .testTag("fullscreen_toggle_note_drawer_button")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = if (isFullscreenNoteDrawerOpen) Icons.Default.Close else Icons.Default.Edit,
-                                    contentDescription = "Toggle Fullscreen Note Panel",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(15.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (isFullscreenNoteDrawerOpen) {
-                                        "✕ नोट बंद करें"
-                                    } else {
-                                        "📝 नोट लें [${formatSecondsToTimestamp(currentPlaybackSeconds)}]"
-                                    },
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        // Clean HUD Hide/Show Toggle Button
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color.Black.copy(alpha = 0.65f),
-                            modifier = Modifier
-                                .clickable { isFullscreenHudVisible = !isFullscreenHudVisible }
-                                .testTag("fullscreen_hud_visibility_button")
-                        ) {
-                            Text(
-                                text = if (isFullscreenHudVisible) "👁️ HUD" else "👁️‍🗨️",
-                                color = Color.White,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp,
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp)
-                            )
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = Color.Black.copy(alpha = 0.65f)
+                            shape = CircleShape,
+                            color = Color.Black.copy(alpha = 0.38f),
+                            modifier = Modifier.testTag("fullscreen_orientation_mode_badge")
                         ) {
                             IconButton(
                                 onClick = {
-                                    isFullscreenNoteDrawerOpen = false
-                                    isAppFullscreen = false
+                                    detectedPortraitFromPlayer = !isVerticalVideo
+                                    controlsRevealTick++
                                 },
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .testTag("player_exit_fullscreen_button")
+                                modifier = Modifier.size(36.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.CloseFullscreen,
-                                    contentDescription = "Switch to Compact View",
+                                    imageVector = if (isVerticalVideo) {
+                                        Icons.Default.StayCurrentPortrait
+                                    } else {
+                                        Icons.Default.StayCurrentLandscape
+                                    },
+                                    contentDescription = "Toggle Orientation",
                                     tint = Color.White,
                                     modifier = Modifier.size(19.dp)
                                 )
@@ -861,289 +989,140 @@ fun FocusPlayerView(
                         }
                     }
 
-                    // === FULLSCREEN BOTTOM-CENTER QUICK TRANSPORT BAR (-10s, Play/Pause, +10s, Live Time, Speed Hint) ===
-                    if (isFullscreenHudVisible && !isFullscreenNoteDrawerOpen) {
-                        Surface(
-                            shape = RoundedCornerShape(24.dp),
-                            color = Color.Black.copy(alpha = 0.62f),
+                    // Top-Right: Exit Fullscreen / Compact View Icon Only
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = 0.38f),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .statusBarsPadding()
+                            .padding(12.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                isFullscreenNoteDrawerOpen = false
+                                isAppFullscreen = false
+                            },
                             modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = 14.dp)
-                                .border(
-                                    width = 1.dp,
-                                    color = Color.White.copy(alpha = 0.16f),
-                                    shape = RoundedCornerShape(24.dp)
-                                )
-                                .testTag("fullscreen_quick_transport_bar")
+                                .size(36.dp)
+                                .testTag("player_exit_fullscreen_button")
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                // -10s Quick Rewind
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = Color.White.copy(alpha = 0.12f),
-                                    modifier = Modifier
-                                        .clickable {
-                                            val rewindSec = (currentPlaybackSeconds - 10).coerceAtLeast(0)
-                                            jumpToSceneTimestamp(rewindSec, formatSecondsToTimestamp(rewindSec))
-                                        }
-                                        .testTag("fullscreen_rewind_10s_button")
-                                ) {
-                                    Text(
-                                        text = "⏪ -10s",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
-                                    )
-                                }
-
-                                // Play / Pause Toggle
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                                    modifier = Modifier
-                                        .clickable { togglePlayPauseTrigger++ }
-                                        .testTag("fullscreen_play_pause_button")
-                                ) {
-                                    Text(
-                                        text = "⏯ Play/Pause",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                                    )
-                                }
-
-                                // +10s Quick Forward
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = Color.White.copy(alpha = 0.12f),
-                                    modifier = Modifier
-                                        .clickable {
-                                            val forwardSec = currentPlaybackSeconds + 10
-                                            jumpToSceneTimestamp(forwardSec, formatSecondsToTimestamp(forwardSec))
-                                        }
-                                        .testTag("fullscreen_forward_10s_button")
-                                ) {
-                                    Text(
-                                        text = "+10s ⏩",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
-                                    )
-                                }
-
-                                // Live Timestamp & Hold-for-2x..4x Tip
-                                Text(
-                                    text = "⏱ ${formatSecondsToTimestamp(currentPlaybackSeconds)} • दबाए रखें: 2x..4x",
-                                    color = Color(0xFFB0BEC5),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.CloseFullscreen,
+                                contentDescription = "Switch to Compact View",
+                                tint = Color.White,
+                                modifier = Modifier.size(19.dp)
+                            )
                         }
                     }
+                }
 
-                    // === TOGGLEABLE POP-OUT COMPACT NOTE DRAWER IN FULLSCREEN MODE ===
-                    if (isFullscreenNoteDrawerOpen) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = Color(0xEB121722),
-                            tonalElevation = 10.dp,
-                            shadowElevation = 12.dp,
-                            modifier = Modifier
-                                .align(if (isVerticalVideo) Alignment.BottomCenter else Alignment.CenterEnd)
-                                .statusBarsPadding()
-                                .padding(
-                                    top = if (isVerticalVideo) 64.dp else 56.dp,
-                                    end = 12.dp,
-                                    start = 12.dp,
-                                    bottom = 14.dp
-                                )
-                                .width(if (isVerticalVideo) 360.dp else 310.dp)
-                                .testTag("fullscreen_floating_note_drawer")
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .padding(12.dp)
-                                    .verticalScroll(rememberScrollState())
-                            ) {
-                                // Header: Live Scene Lock + Editable Time + Close
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0xFFE65100).copy(alpha = 0.25f),
-                                        modifier = Modifier.clickable {
-                                            pauseTrigger++
-                                            quickSceneTimestampInput = formatSecondsToTimestamp(currentPlaybackSeconds)
-                                            isQuickTimestampLocked = true
-                                        }
-                                    ) {
-                                        Text(
-                                            text = "⏸ सीन लॉक: ${formatSecondsToTimestamp(currentPlaybackSeconds)}",
-                                            color = Color(0xFFFFB74D),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
-                                    }
+                // === LEFT VERTICAL SEEK BAR: BRIGHTNESS CONTROL (Click/Slide Up = +Brightness, Down = -Brightness) ===
+                if (!isPlayerLoading && !isVideoEnded) {
+                    VerticalSideSeekBar(
+                        value = playerBrightness,
+                        icon = Icons.Default.LightMode,
+                        accentColor = Color(0xFFFFD54F),
+                        alpha = overlayAlpha,
+                        onValueChange = { newVal ->
+                            isAdjustingBrightness = true
+                            applyPlayerBrightness(newVal)
+                            controlsRevealTick++
+                        },
+                        onValueChangeFinished = {
+                            isAdjustingBrightness = false
+                            controlsRevealTick++
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = if (isAppFullscreen) 14.dp else 8.dp)
+                            .testTag("player_brightness_seek_bar")
+                    )
 
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = "⏱",
-                                            fontSize = 11.sp,
-                                            color = Color.LightGray
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        OutlinedTextField(
-                                            value = quickSceneTimestampInput,
-                                            onValueChange = {
-                                                quickSceneTimestampInput = it
-                                                isQuickTimestampLocked = true
-                                            },
-                                            singleLine = true,
-                                            textStyle = MaterialTheme.typography.labelSmall.copy(
-                                                color = Color(0xFFFFB74D),
-                                                fontWeight = FontWeight.Bold
-                                            ),
-                                            modifier = Modifier
-                                                .width(68.dp)
-                                                .testTag("fullscreen_drawer_timestamp_input"),
-                                            shape = RoundedCornerShape(8.dp)
-                                        )
-                                    }
-                                }
+                    // === RIGHT VERTICAL SEEK BAR: VOLUME CONTROL (Click/Slide Up = +Volume, Down = -Volume) ===
+                    VerticalSideSeekBar(
+                        value = playerVolume,
+                        icon = if (playerVolume <= 0.01f) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                        accentColor = Color(0xFF00E5FF),
+                        alpha = overlayAlpha,
+                        onValueChange = { newVal ->
+                            isAdjustingVolume = true
+                            applyPlayerVolume(newVal)
+                            controlsRevealTick++
+                        },
+                        onValueChangeFinished = {
+                            isAdjustingVolume = false
+                            controlsRevealTick++
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = if (isAppFullscreen) 14.dp else 8.dp)
+                            .testTag("player_volume_seek_bar")
+                    )
+                }
 
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                // Compact Note Input + Save Button
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    OutlinedTextField(
-                                        value = quickSceneNoteText,
-                                        onValueChange = {
-                                            if (quickSceneNoteText.isEmpty() && it.isNotEmpty() && !isQuickTimestampLocked) {
-                                                quickSceneTimestampInput = formatSecondsToTimestamp(currentPlaybackSeconds)
-                                                isQuickTimestampLocked = true
-                                            }
-                                            quickSceneNoteText = it
-                                        },
-                                        placeholder = {
-                                            Text(
-                                                "सीन [${quickSceneTimestampInput.ifBlank { formatSecondsToTimestamp(currentPlaybackSeconds) }}] का नोट लिखें...",
-                                                fontSize = 11.sp,
-                                                color = Color.LightGray
-                                            )
-                                        },
-                                        textStyle = MaterialTheme.typography.bodySmall.copy(color = Color.White),
-                                        maxLines = 2,
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .testTag("fullscreen_drawer_note_input")
-                                    )
-
-                                    Button(
-                                        onClick = {
-                                            val ts = quickSceneTimestampInput.trim().ifBlank {
-                                                formatSecondsToTimestamp(currentPlaybackSeconds)
-                                            }
-                                            addSceneNoteEntry(ts, quickSceneNoteText)
-                                            quickSceneNoteText = ""
-                                            isQuickTimestampLocked = false
-                                            quickSceneTimestampInput = formatSecondsToTimestamp(currentPlaybackSeconds)
-                                        },
-                                        enabled = quickSceneNoteText.isNotBlank(),
-                                        shape = RoundedCornerShape(10.dp),
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                                        modifier = Modifier.testTag("fullscreen_drawer_save_button")
-                                    ) {
-                                        Text("+ सेव", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-
-                                // Seek feedback inside fullscreen drawer
-                                lastSeekFeedback?.let { msg ->
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = msg,
-                                        color = Color(0xFF81C784),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-
-                                // Saved Scene Notes inside Fullscreen Drawer (Tap any ▶ 6:02 badge to jump immediately!)
-                                if (parsedSceneNotes.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "📋 सेव सीन नोट्स (${parsedSceneNotes.size}) — टैप करके चलाएं:",
-                                        color = Color(0xFF90CAF9),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        parsedSceneNotes.forEach { entry ->
-                                            val hasTs = entry.timestampSeconds != null && entry.timestampLabel != null
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = Color.White.copy(alpha = 0.10f),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clickable {
-                                                        if (hasTs) {
-                                                            jumpToSceneTimestamp(entry.timestampSeconds!!, entry.timestampLabel!!)
-                                                        }
-                                                    }
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
-                                                ) {
-                                                    if (hasTs) {
-                                                        Surface(
-                                                            shape = RoundedCornerShape(5.dp),
-                                                            color = Color(0xFFE65100)
-                                                        ) {
-                                                            Text(
-                                                                text = "▶ ${entry.timestampLabel}",
-                                                                color = Color.White,
-                                                                fontSize = 9.sp,
-                                                                fontWeight = FontWeight.ExtraBold,
-                                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                                            )
-                                                        }
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                    }
-                                                    Text(
-                                                        text = entry.noteBody,
-                                                        color = Color.White,
-                                                        fontSize = 11.sp,
-                                                        maxLines = 2,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        modifier = Modifier.weight(1f)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                // === ULTRA-MINIMAL & MODERN UNSCALED BOTTOM SEEK BAR ===
+                // Always mounted outside ZeroSuggestionPlayer's graphicsLayer(scaleX, scaleY) so touch coordinates
+                // map 100% accurately to [0.0 .. 1.0] of the video timeline regardless of the current zoom level!
+                // Contains ZERO text buttons ('-10s', '+10s', 'Play' removed as requested).
+                if (!isPlayerLoading && !isVideoEnded) {
+                    val activeDisplaySeconds = if (isScrubbingSeekBar) {
+                        scrubSliderSeconds.roundToInt().coerceIn(0, effectiveDurationSec)
+                    } else {
+                        currentPlaybackSeconds.coerceIn(0, effectiveDurationSec)
                     }
+                    val progressFraction = (if (isScrubbingSeekBar) {
+                        scrubSliderSeconds / effectiveDurationSec.toFloat().coerceAtLeast(1f)
+                    } else {
+                        currentPlaybackSeconds.toFloat() / effectiveDurationSec.toFloat().coerceAtLeast(1f)
+                    }).coerceIn(0f, 1f)
+
+                    MinimalModernSeekBar(
+                        progressFraction = progressFraction,
+                        currentSeconds = activeDisplaySeconds,
+                        totalSeconds = effectiveDurationSec,
+                        isScrubbing = isScrubbingSeekBar,
+                        overlayAlpha = overlayAlpha,
+                        isAppFullscreen = isAppFullscreen,
+                        pinchZoomScale = pinchZoomScale,
+                        onScrubFractionChanged = { ratio ->
+                            if (!isScrubbingSeekBar) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                            isScrubbingSeekBar = true
+                            val targetFloat = ratio.coerceIn(0f, 1f) * effectiveDurationSec
+                            scrubSliderSeconds = targetFloat
+                            val nowMs = SystemClock.uptimeMillis()
+                            if (nowMs - lastLiveSeekDispatchMs >= 140L) {
+                                lastLiveSeekDispatchMs = nowMs
+                                val liveSec = targetFloat.roundToInt().coerceIn(0, effectiveDurationSec)
+                                currentPlaybackSeconds = liveSec
+                                seekCommand = VideoSeekCommand(seconds = liveSec)
+                            }
+                        },
+                        onScrubFinished = { finalRatio ->
+                            val finalSec = (finalRatio.coerceIn(0f, 1f) * effectiveDurationSec)
+                                .roundToInt()
+                                .coerceIn(0, effectiveDurationSec)
+                            isScrubbingSeekBar = false
+                            jumpToSceneTimestamp(finalSec, formatSecondsToTimestamp(finalSec))
+                            controlsRevealTick++
+                        },
+                        onResetZoom = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            pinchZoomScale = 1.0f
+                            controlsRevealTick++
+                        },
+                        onToggleFullscreen = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            isAppFullscreen = !isAppFullscreen
+                            controlsRevealTick++
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .testTag("player_controls_overlay")
+                    )
                 }
 
                 // Loading Indicator
@@ -1189,40 +1168,56 @@ fun FocusPlayerView(
                         .weight(1f)
                         .background(MaterialTheme.colorScheme.background)
                         .verticalScroll(rememberScrollState())
-                        .padding(16.dp)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
                 Text(
                     text = video.title,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontSize = 15.5.sp,
+                    lineHeight = 21.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
+                    maxLines = if (isTitleExpanded) 5 else 2,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.clickable { isTitleExpanded = !isTitleExpanded }
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
+                    ) {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
+                            color = MaterialTheme.colorScheme.surfaceVariant
                         ) {
                             Text(
                                 text = video.channelName,
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
                         if (video.uploadDate.isNotBlank()) {
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = video.uploadDate,
                                 style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                softWrap = false,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -1230,120 +1225,146 @@ fun FocusPlayerView(
 
                     val displayDuration = com.example.util.DurationUtils.formatCleanDuration(video.duration, video.videoId)
                     if (displayDuration.isNotBlank()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                        ) {
                             Text(
                                 text = "⏱ $displayDuration",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                             )
                         }
                     }
                 }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // === VIDEO PLAYLIST & NOTE/COMMENT STATUS OVERVIEW CARD ===
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("player_video_status_card"),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(10.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                 )
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
+                Column(modifier = Modifier.padding(10.dp)) {
                     Text(
-                        text = "📌 वीडियो की स्थिति (Playlist & Note Status):",
-                        style = MaterialTheme.typography.labelMedium,
+                        text = "📌 Video Status (Playlist & Note):",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(5.dp))
 
                     // 1. Saved Playlist(s) Status
                     if (savedInPlaylists.isNotEmpty()) {
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(7.dp),
                             color = if (savedInPlaylists.size >= 2) Color(0xFF6A1B9A).copy(alpha = 0.15f) else Color(0xFF1B5E20).copy(alpha = 0.15f),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
                                 text = if (savedInPlaylists.size >= 2) {
-                                    "⚡ यह वीडियो ${savedInPlaylists.size} प्लेलिस्ट (डबल/मल्टी) में सेव है: " + savedInPlaylists.joinToString(", ") { it.title }
+                                    "⚡ Saved in ${savedInPlaylists.size} playlists: " + savedInPlaylists.joinToString(", ") { it.title }
                                 } else {
-                                    "✅ यह वीडियो प्लेलिस्ट में सेव है: 📁 ${savedInPlaylists.first().title}"
+                                    "✅ Saved in Playlist: 📁 ${savedInPlaylists.first().title}"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 color = if (savedInPlaylists.size >= 2) Color(0xFF6A1B9A) else Color(0xFF2E7D32),
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                             )
                         }
                     } else {
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(7.dp),
                             color = Color(0xFFE65100).copy(alpha = 0.14f),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "⚪ यह वीडियो अभी किसी भी प्लेलिस्ट में सेव नहीं है",
+                                text = "⚪ Not saved in any playlist yet",
                                 style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 color = Color(0xFFE65100),
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(5.dp))
 
                     // 2. Note / Comment Status
                     if (currentNotes.isNotBlank()) {
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(7.dp),
                             color = MaterialTheme.colorScheme.secondaryContainer,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { showNotesDialog = true }
                         ) {
                             Text(
-                                text = "📝 नोट/कमेंट लिखा हुआ है: \"${currentNotes.trim()}\"",
+                                text = "📝 Note: \"${currentNotes.trim()}\"",
                                 style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                maxLines = 2,
+                                maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                             )
                         }
                     } else {
                         Surface(
-                            shape = RoundedCornerShape(8.dp),
+                            shape = RoundedCornerShape(7.dp),
                             color = MaterialTheme.colorScheme.surface,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { showNotesDialog = true }
                         ) {
                             Text(
-                                text = "💬 इस वीडियो पर अभी कोई नोट/कमेंट नहीं लिखा है (+ नोट लिखने के लिए टैप करें)",
+                                text = "💬 No notes added yet (+ Tap to write a note)",
                                 style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                             )
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Primary Action: Save to Playlist
             Button(
-                onClick = { showSaveToPlaylistDialog = true },
-                shape = RoundedCornerShape(12.dp),
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    showSaveToPlaylistDialog = true
+                },
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(40.dp)
                     .testTag("save_to_playlist_button"),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -1353,57 +1374,156 @@ fun FocusPlayerView(
                 Icon(
                     imageVector = Icons.Default.PlaylistAdd,
                     contentDescription = null,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = if (savedInPlaylists.isNotEmpty()) {
-                        "✅ सेव है (${savedInPlaylists.size} प्लेलिस्ट) • + दूसरी प्लेलिस्ट में जोड़ें"
+                        "✅ Saved (${savedInPlaylists.size}) • + Add to Another Playlist"
                     } else {
-                        "Save to Playlist / प्लेलिस्ट में सेव करें"
+                        "Save to Playlist"
                     },
                     style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
+                    fontSize = 12.5.sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.Bold
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Quick Video Page Options Row (Fullscreen, Mark Completed, Delete)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilledTonalButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        isAppFullscreen = true
+                        controlsRevealTick++
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .testTag("video_page_fullscreen_button"),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Fullscreen,
+                        contentDescription = "Fullscreen",
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Fullscreen", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                }
+
+                FilledTonalButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        isCompleted = !isCompleted
+                        onToggleCompleted(video.copy(isCompleted = isCompleted))
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                        .testTag("video_page_complete_button"),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = if (isCompleted) Color(0xFF1B5E20).copy(alpha = 0.22f)
+                        else MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isCompleted) Icons.Default.CheckCircle else Icons.Outlined.CheckCircle,
+                        contentDescription = "Mark Completed",
+                        tint = if (isCompleted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (isCompleted) "Completed ✓" else "Mark Done",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+
+                if (onDeleteVideo != null && video.id > 0L) {
+                    OutlinedButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showDeleteVideoConfirmDialog = true
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier
+                            .height(38.dp)
+                            .testTag("video_page_delete_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete Video",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Video Notes Section (सीन टाइमस्टैम्प नोट्स - Click timestamp to jump & play from that exact scene!)
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("video_notes_card"),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
                 )
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 8.dp)
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.Edit,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(16.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Column {
                                 Text(
-                                    text = "Scene Notes / सीन टाइमस्टैम्प नोट्स",
+                                    text = "Scene Notes",
                                     style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "टाइम हाईलाइट (जैसे ▶ 6:02) पर क्लिक करते ही वीडियो वहीं से चलेगी",
+                                    text = "Tap any timestamp badge (▶ 6:02) to jump directly to that scene",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 10.sp
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -1417,9 +1537,11 @@ fun FocusPlayerView(
                             },
                             shape = RoundedCornerShape(8.dp),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            modifier = Modifier.testTag("edit_notes_button")
+                            modifier = Modifier
+                                .height(32.dp)
+                                .testTag("edit_notes_button")
                         ) {
-                            Text("Full Editor", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("Full Editor", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                         }
                     }
 
@@ -1483,7 +1605,7 @@ fun FocusPlayerView(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                                     ) {
                                         Text(
-                                            text = "⏸ अभी का सीन लॉक करें: ${formatSecondsToTimestamp(currentPlaybackSeconds)}",
+                                            text = "⏸ Lock Scene: ${formatSecondsToTimestamp(currentPlaybackSeconds)}",
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
                                             color = Color(0xFFE65100)
@@ -1494,7 +1616,7 @@ fun FocusPlayerView(
                                 // Editable Timestamp Box (e.g. user can also type 6:02 manually)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = "⏱ टाइम:",
+                                        text = "⏱ Time:",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1539,7 +1661,7 @@ fun FocusPlayerView(
                                     },
                                     placeholder = {
                                         Text(
-                                            "इस सीन [${quickSceneTimestampInput.ifBlank { formatSecondsToTimestamp(currentPlaybackSeconds) }}] की काम की बात लिखें...",
+                                            "Write key point at [${quickSceneTimestampInput.ifBlank { formatSecondsToTimestamp(currentPlaybackSeconds) }}]...",
                                             fontSize = 12.sp
                                         )
                                     },
@@ -1571,7 +1693,7 @@ fun FocusPlayerView(
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("जोड़ें", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Text("Add", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 }
                             }
                         }
@@ -1587,7 +1709,7 @@ fun FocusPlayerView(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "📋 आपके सेव किए गए सीन नोट्स (${filteredSceneNotes.size}/${parsedSceneNotes.size}) — चलाने के लिए टैप करें:",
+                                text = "📋 Saved Scene Notes (${filteredSceneNotes.size}/${parsedSceneNotes.size}) — Tap to jump:",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary,
@@ -1616,7 +1738,7 @@ fun FocusPlayerView(
                             OutlinedTextField(
                                 value = sceneNoteSearchQuery,
                                 onValueChange = { sceneNoteSearchQuery = it },
-                                placeholder = { Text("🔍 इस वीडियो के नोट्स या टाइमस्टैम्प (जैसे 6:02) खोजें...", fontSize = 11.sp) },
+                                placeholder = { Text("🔍 Search notes or timestamps (e.g. 6:02)...", fontSize = 11.sp) },
                                 singleLine = true,
                                 leadingIcon = {
                                     Icon(
@@ -1718,7 +1840,7 @@ fun FocusPlayerView(
                                                 )
                                                 if (hasTimestamp) {
                                                     Text(
-                                                        text = "👆 टैप करें — वीडियो ${entry.timestampLabel} से चालू होगी",
+                                                        text = "👆 Tap to jump to ${entry.timestampLabel}",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         fontSize = 10.sp,
                                                         color = Color(0xFFE65100)
@@ -1753,13 +1875,13 @@ fun FocusPlayerView(
 
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "🌙 ये सभी सीन टाइमस्टैम्प नोट्स इसी वीडियो के साथ लिंक हैं और ऑटो-बैकअप में सुरक्षित रहते हैं।",
+                            text = "🌙 All scene timestamp notes are linked to this video and automatically backed up.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     } else {
                         Text(
-                            text = "उदाहरण: अगर 10 मिनट की वीडियो में 6 मिनट 2 सेकंड (6:02) पर कोई काम की बात है, तो ऊपर नोट लिखकर 'जोड़ें' दबाएं। उस पर [▶ 6:02] का हाईलाइट आ जाएगा जिस पर क्लिक करते ही वीडियो वहीं से चालू हो जाएगी!",
+                            text = "Example: Write a note above at 6:02 and tap 'Add'. A clickable [▶ 6:02] badge will appear so you can jump straight to that scene anytime!",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1929,6 +2051,55 @@ fun FocusPlayerView(
             onRefreshYouTubePlaylists = onRefreshYouTubePlaylists
         )
     }
+
+    // Confirmation Dialog before deleting a video from the Video Page
+    if (showDeleteVideoConfirmDialog && onDeleteVideo != null && video.id > 0L) {
+        AlertDialog(
+            onDismissRequest = { showDeleteVideoConfirmDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text(
+                    text = "Delete Video?",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to delete '${video.title}' from the playlist?"
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showDeleteVideoConfirmDialog = false
+                        onDeleteVideo(video.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    ),
+                    modifier = Modifier.testTag("confirm_delete_video_dialog_button")
+                ) {
+                    Text("Yes, Delete", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteVideoConfirmDialog = false },
+                    modifier = Modifier.testTag("cancel_delete_video_dialog_button")
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 /**
@@ -1949,7 +2120,7 @@ fun VideoNotesDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("Scene Notes / वीडियो सीन नोट्स", fontWeight = FontWeight.Bold)
+            Text("Scene Notes", fontWeight = FontWeight.Bold)
         },
         text = {
             Column(
@@ -1979,14 +2150,14 @@ fun VideoNotesDialog(
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                     ) {
-                        Text("⏱ + अभी का सीन [$currentSceneTimestamp]", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        Text("⏱ + Current Scene [$currentSceneTimestamp]", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                     }
                     TextButton(
                         onClick = {
                             noteText = if (noteText.isBlank()) "[6:02] " else "${noteText.trimEnd()}\n[6:02] "
                         }
                     ) {
-                        Text("+ [6:02] उदाहरण", style = MaterialTheme.typography.labelSmall)
+                        Text("+ [6:02] Example", style = MaterialTheme.typography.labelSmall)
                     }
                 }
 
@@ -1995,7 +2166,7 @@ fun VideoNotesDialog(
                 OutlinedTextField(
                     value = noteText,
                     onValueChange = { noteText = it },
-                    placeholder = { Text("जैसे:\n[6:02] यहाँ मुख्य पॉइंट समझाया गया है\n[8:15] दूसरा महत्वपूर्ण सीन...") },
+                    placeholder = { Text("Example:\n[6:02] Main concept explained here\n[8:15] Second important scene...") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(160.dp),
@@ -2008,7 +2179,7 @@ fun VideoNotesDialog(
                 if (timestampedEntries.isNotEmpty() && onSeekToTimestamp != null) {
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "▶ किसी भी टाइम हाईलाइट पर क्लिक करके वीडियो वहीं से चलाएं:",
+                        text = "▶ Tap any timestamp badge below to jump directly to that scene:",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -2254,7 +2425,7 @@ fun SaveVideoToPlaylistDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "✅ पहले से सेव है (${alreadySavedPlaylists.size}): " + alreadySavedPlaylists.joinToString(", ") { it.title },
+                            text = "✅ Already saved (${alreadySavedPlaylists.size}): " + alreadySavedPlaylists.joinToString(", ") { it.title },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF2E7D32),
@@ -2268,7 +2439,7 @@ fun SaveVideoToPlaylistDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "⚪ यह वीडियो अभी किसी भी प्लेलिस्ट में सेव नहीं है",
+                            text = "⚪ Not saved in any playlist yet",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
@@ -2363,7 +2534,7 @@ fun SaveVideoToPlaylistDialog(
                             FilterChip(
                                 selected = !sortAlphabetically,
                                 onClick = { sortAlphabetically = false },
-                                label = { Text("🕒 हाल ही में", style = MaterialTheme.typography.labelSmall) }
+                                label = { Text("🕒 Recent", style = MaterialTheme.typography.labelSmall) }
                             )
                             FilterChip(
                                 selected = sortAlphabetically,
@@ -2381,11 +2552,11 @@ fun SaveVideoToPlaylistDialog(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("सारी लाएं", style = MaterialTheme.typography.labelSmall)
+                                Text("Fetch All", style = MaterialTheme.typography.labelSmall)
                             }
                         } else {
                             Text(
-                                text = "↕ ${filteredPlaylists.size} स्क्रॉल करें",
+                                text = "↕ Scroll (${filteredPlaylists.size})",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.SemiBold
@@ -2398,7 +2569,7 @@ fun SaveVideoToPlaylistDialog(
                     // Fully Scrollable LazyColumn for all playlists (supports 100s of playlists smoothly)
                     if (filteredPlaylists.isEmpty()) {
                         Text(
-                            text = "कोई मिलती-जुलती प्लेलिस्ट नहीं मिली।",
+                            text = "No matching playlists found.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(12.dp)
@@ -2463,7 +2634,7 @@ fun SaveVideoToPlaylistDialog(
                                                     color = Color(0xFF2E7D32)
                                                 ) {
                                                     Text(
-                                                        text = "✅ सेव है",
+                                                        text = "✅ Saved",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = Color.White,
                                                         fontWeight = FontWeight.Bold,
@@ -2476,7 +2647,7 @@ fun SaveVideoToPlaylistDialog(
                                                     color = MaterialTheme.colorScheme.secondaryContainer
                                                 ) {
                                                     Text(
-                                                        text = "🕒 हाल ही में",
+                                                        text = "🕒 Recent",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -2511,7 +2682,7 @@ fun SaveVideoToPlaylistDialog(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "✅ ओरिजिनल YouTube प्लेलिस्ट Auto-Save सक्रिय है (Save दबाते ही YouTube ऐप में भी सेव होगा)",
+                                text = "✅ Official YouTube Playlist Auto-Save is active (saves directly to your YouTube playlist too)",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFF2E7D32)
@@ -2538,12 +2709,12 @@ fun SaveVideoToPlaylistDialog(
                         Spacer(modifier = Modifier.width(6.dp))
                         Column {
                             Text(
-                                text = "साथ में YouTube App भी खोलें ↗",
+                                text = "Also Open in YouTube App ↗",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "सेव करने के तुरंत बाद YouTube ऐप में वीडियो खोलें",
+                                text = "Open this video in the official YouTube app right after saving",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -2583,6 +2754,270 @@ fun SaveVideoToPlaylistDialog(
 }
 
 /**
+ * Invisible Vertical Side Seek Bar for Left (Brightness) and Right (Volume) controls.
+ * Completely invisible (zero visual clutter) while allowing vertical drag up/down or top/bottom tap
+ * to increase or decrease Brightness (Left) and Volume (Right).
+ */
+@Composable
+fun VerticalSideSeekBar(
+    value: Float,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    accentColor: Color,
+    alpha: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val currentValue by rememberUpdatedState(value)
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentOnValueChangeFinished by rememberUpdatedState(onValueChangeFinished)
+    var barHeightPx by remember { mutableFloatStateOf(1f) }
+
+    Box(
+        modifier = modifier
+            .width(32.dp)
+            .height(140.dp)
+            .onSizeChanged { size ->
+                if (size.height > 0) {
+                    barHeightPx = size.height.toFloat()
+                }
+            }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    val h = barHeightPx.coerceAtLeast(1f)
+                    var lastY = down.position.y
+                    var totalMove = 0f
+
+                    var pointerId = down.id
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == pointerId }
+                            ?: event.changes.firstOrNull()
+                            ?: break
+                        if (!change.pressed) {
+                            change.consume()
+                            break
+                        }
+                        pointerId = change.id
+                        change.consume()
+                        val dy = lastY - change.position.y // Positive when dragging UP, negative when dragging DOWN
+                        totalMove += abs(dy)
+                        lastY = change.position.y
+                        if (abs(dy) > 0.5f) {
+                            val stepDelta = dy / h
+                            currentOnValueChange((currentValue + stepDelta).coerceIn(0f, 1f))
+                        }
+                    }
+
+                    // If it was a quick tap without dragging: upper half increases, lower half decreases
+                    if (totalMove < 12f) {
+                        val tapStep = if (down.position.y < h * 0.5f) 0.10f else -0.10f
+                        currentOnValueChange((currentValue + tapStep).coerceIn(0f, 1f))
+                    }
+                    currentOnValueChangeFinished()
+                }
+            }
+    )
+}
+
+/**
+ * Ultra-Minimal & Modern Bottom Seek Bar:
+ * - Zero text buttons ('-10s', '+10s', 'Play' completely removed).
+ * - Custom touch handler maps horizontal touch coordinate `position.x / trackWidth` directly to `[0.0 .. 1.0]`
+ *   of the video timeline in unscaled parent coordinates, so zooming in (1.0x .. 2.5x) never affects seek accuracy.
+ */
+@Composable
+fun MinimalModernSeekBar(
+    progressFraction: Float,
+    currentSeconds: Int,
+    totalSeconds: Int,
+    isScrubbing: Boolean,
+    overlayAlpha: Float,
+    isAppFullscreen: Boolean,
+    pinchZoomScale: Float,
+    onScrubFractionChanged: (Float) -> Unit,
+    onScrubFinished: (Float) -> Unit,
+    onResetZoom: () -> Unit,
+    onToggleFullscreen: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val currentOnScrubFractionChanged by rememberUpdatedState(onScrubFractionChanged)
+    val currentOnScrubFinished by rememberUpdatedState(onScrubFinished)
+    var trackWidthPx by remember { mutableFloatStateOf(1f) }
+
+    val animatedTrackHeight by animateDpAsState(
+        targetValue = if (isScrubbing) 6.dp else 3.dp,
+        animationSpec = tween(durationMillis = 120),
+        label = "minimalSeekTrackHeight"
+    )
+    val animatedThumbSize by animateDpAsState(
+        targetValue = if (isScrubbing) 14.dp else 9.dp,
+        animationSpec = tween(durationMillis = 120),
+        label = "minimalSeekThumbSize"
+    )
+
+    Column(
+        modifier = modifier
+            .graphicsLayer { alpha = if (isScrubbing) 1f else overlayAlpha }
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.52f)
+                    )
+                )
+            )
+            .padding(
+                horizontal = if (isAppFullscreen) 20.dp else 12.dp,
+                vertical = if (isAppFullscreen) 8.dp else 4.dp
+            )
+    ) {
+        // Floating minimal time bubble while actively scrubbing
+        if (isScrubbing) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color.Black.copy(alpha = 0.72f),
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(bottom = 4.dp)
+                    .border(0.8.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(10.dp))
+            ) {
+                Text(
+                    text = "${formatSecondsToTimestamp(currentSeconds)} / ${formatSecondsToTimestamp(totalSeconds)}",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Minimal numeric timestamp (no text labels)
+            Text(
+                text = "${formatSecondsToTimestamp(currentSeconds)} / ${formatSecondsToTimestamp(totalSeconds)}",
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.testTag("player_seek_time_label")
+            )
+
+            // Sleek Custom Interactive Timeline Track
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(32.dp)
+                    .onSizeChanged { size ->
+                        if (size.width > 0) {
+                            trackWidthPx = size.width.toFloat()
+                        }
+                    }
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            down.consume()
+                            val w = trackWidthPx.coerceAtLeast(1f)
+                            var latestRatio = (down.position.x / w).coerceIn(0f, 1f)
+                            currentOnScrubFractionChanged(latestRatio)
+
+                            var pointerId = down.id
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == pointerId }
+                                    ?: event.changes.firstOrNull()
+                                    ?: break
+                                if (!change.pressed) {
+                                    change.consume()
+                                    break
+                                }
+                                pointerId = change.id
+                                change.consume()
+                                latestRatio = (change.position.x / trackWidthPx.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                                currentOnScrubFractionChanged(latestRatio)
+                            }
+                            currentOnScrubFinished(latestRatio)
+                        }
+                    }
+                    .testTag("player_interactive_seek_bar"),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                // Background Track
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(animatedTrackHeight)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.26f))
+                )
+
+                // Active Progress Fill
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progressFraction.coerceIn(0f, 1f))
+                        .height(animatedTrackHeight)
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(Color(0xFFFF5252), Color(0xFFFF3D00))
+                            )
+                        )
+                )
+
+                // Minimal Circular Thumb
+                val thumbOffsetPx = (progressFraction.coerceIn(0f, 1f) * trackWidthPx).roundToInt()
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(x = thumbOffsetPx, y = 0) }
+                        .offset(x = -(animatedThumbSize / 2))
+                        .size(animatedThumbSize)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                        .border(1.5.dp, Color(0xFFFF3D00), CircleShape)
+                )
+            }
+
+            // Icon-Only Reset Zoom button (only when zoomed in)
+            if (pinchZoomScale > 1.02f) {
+                IconButton(
+                    onClick = onResetZoom,
+                    modifier = Modifier
+                        .size(26.dp)
+                        .testTag("overlay_reset_zoom_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Reset Zoom",
+                        tint = Color(0xFF00E676),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // Icon-Only Fullscreen Toggle
+            IconButton(
+                onClick = onToggleFullscreen,
+                modifier = Modifier
+                    .size(26.dp)
+                    .testTag("overlay_fullscreen_toggle_button")
+            ) {
+                Icon(
+                    imageVector = if (isAppFullscreen) Icons.Default.CloseFullscreen else Icons.Default.Fullscreen,
+                    contentDescription = if (isAppFullscreen) "Exit Fullscreen" else "Fullscreen",
+                    tint = Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
  * Android WebView Isolated YouTube Player:
  * 1. Family Link / Parental Controls compatible:
  *    - Loads from `https://www.youtube-nocookie.com` to bypass Chrome parental filters on youtube.com.
@@ -2606,9 +3041,19 @@ fun ZeroSuggestionPlayer(
     pauseTrigger: Int = 0,
     togglePlayPauseTrigger: Int = 0,
     seekCommand: VideoSeekCommand? = null,
-    fullscreenZoomMode: String = "AUTO_FILL",
+    fullscreenZoomMode: String = "FIT_ORIGINAL",
+    currentZoomScale: Float = 1.0f,
+    playerVolumePercent: Int = 100,
+    isVideoPlaying: Boolean = false,
     onHoldSpeedChanged: (Boolean, Float) -> Unit = { _, _ -> },
+    onPinchZoomChanged: (Boolean, Float) -> Unit = { _, _ -> },
+    onScreenTapped: () -> Unit = {},
+    onDoubleTapAction: (Int) -> Unit = {},
+    onSideVerticalDelta: (Int, Float) -> Unit = { _, _ -> },
+    onTimelineSeekRatio: (Float, Boolean) -> Unit = { _, _ -> },
     onCurrentTimeChanged: (Int) -> Unit = {},
+    onDurationChanged: (Int) -> Unit = {},
+    onPlayingStateChanged: (Boolean) -> Unit = {},
     onVideoOrientationDetected: (Boolean) -> Unit = {},
     onLoadingChanged: (Boolean) -> Unit,
     onVideoEnded: () -> Unit,
@@ -2617,8 +3062,17 @@ fun ZeroSuggestionPlayer(
     modifier: Modifier = Modifier
 ) {
     val mainHandler = remember { android.os.Handler(android.os.Looper.getMainLooper()) }
+    val currentOnZoomScale by rememberUpdatedState(currentZoomScale)
+    val currentIsVideoPlaying by rememberUpdatedState(isVideoPlaying)
     val currentOnHoldSpeedChanged by rememberUpdatedState(onHoldSpeedChanged)
+    val currentOnPinchZoomChanged by rememberUpdatedState(onPinchZoomChanged)
+    val currentOnScreenTapped by rememberUpdatedState(onScreenTapped)
+    val currentOnDoubleTapAction by rememberUpdatedState(onDoubleTapAction)
+    val currentOnSideVerticalDelta by rememberUpdatedState(onSideVerticalDelta)
+    val currentOnTimelineSeekRatio by rememberUpdatedState(onTimelineSeekRatio)
     val currentOnCurrentTimeChanged by rememberUpdatedState(onCurrentTimeChanged)
+    val currentOnDurationChanged by rememberUpdatedState(onDurationChanged)
+    val currentOnPlayingStateChanged by rememberUpdatedState(onPlayingStateChanged)
     val currentOnVideoOrientationDetected by rememberUpdatedState(onVideoOrientationDetected)
     val currentOnVideoEnded by rememberUpdatedState(onVideoEnded)
     var lastHandledReplay by remember(videoId) { mutableStateOf(0) }
@@ -2626,13 +3080,17 @@ fun ZeroSuggestionPlayer(
     var lastHandledTogglePlayPause by remember(videoId) { mutableStateOf(0) }
     var lastHandledSeekId by remember(videoId) { mutableStateOf(0L) }
     var lastHandledZoomMode by remember(videoId) { mutableStateOf("") }
+    var lastHandledVolumePercent by remember(videoId) { mutableIntStateOf(-1) }
     val startParamSeconds = (initialSeekSeconds ?: 0).coerceAtLeast(0)
     val autoplayParam = if (startParamSeconds > 0) 1 else 0
 
     class PlayerJsBridge {
         @JavascriptInterface
         fun reportEnded() {
-            mainHandler.post { currentOnVideoEnded() }
+            mainHandler.post {
+                currentOnPlayingStateChanged(false)
+                currentOnVideoEnded()
+            }
         }
 
         @JavascriptInterface
@@ -2640,6 +3098,18 @@ fun ZeroSuggestionPlayer(
             if (seconds >= 0) {
                 mainHandler.post { currentOnCurrentTimeChanged(seconds) }
             }
+        }
+
+        @JavascriptInterface
+        fun reportDuration(seconds: Int) {
+            if (seconds > 0) {
+                mainHandler.post { currentOnDurationChanged(seconds) }
+            }
+        }
+
+        @JavascriptInterface
+        fun reportPlayingState(isPlaying: Boolean) {
+            mainHandler.post { currentOnPlayingStateChanged(isPlaying) }
         }
 
         @JavascriptInterface
@@ -2720,7 +3190,7 @@ fun ZeroSuggestionPlayer(
         <body>
           <div id="player-wrap">
             <iframe id="focus-yt-iframe"
-              src="https://www.youtube-nocookie.com/embed/$videoId?enablejsapi=1&autoplay=$autoplayParam&start=$startParamSeconds&controls=1&rel=0&modestbranding=1&iv_load_policy=3&fs=1&playsinline=1"
+              src="https://www.youtube-nocookie.com/embed/$videoId?enablejsapi=1&autoplay=$autoplayParam&start=$startParamSeconds&controls=0&rel=0&modestbranding=1&iv_load_policy=3&fs=0&playsinline=1"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
               allowfullscreen>
             </iframe>
@@ -2728,6 +3198,8 @@ fun ZeroSuggestionPlayer(
           <script>
             var player;
             var lastReportedSec = -1;
+            var lastReportedDur = -1;
+            var lastReportedPlaying = null;
             var orientationReported = false;
             var initialStartSec = $startParamSeconds;
             var latestKnownTime = $startParamSeconds;
@@ -2743,6 +3215,28 @@ fun ZeroSuggestionPlayer(
                 lastReportedSec = floored;
                 if (window.AndroidBridge && window.AndroidBridge.reportCurrentTime) {
                   window.AndroidBridge.reportCurrentTime(floored);
+                }
+              }
+            }
+
+            function notifyDuration(dur) {
+              if (typeof dur === 'number' && !isNaN(dur) && dur > 0) {
+                var rounded = Math.round(dur);
+                if (rounded > 0 && rounded !== lastReportedDur) {
+                  lastReportedDur = rounded;
+                  if (window.AndroidBridge && window.AndroidBridge.reportDuration) {
+                    window.AndroidBridge.reportDuration(rounded);
+                  }
+                }
+              }
+            }
+
+            function notifyPlayingState(isPlaying) {
+              var b = !!isPlaying;
+              if (b !== lastReportedPlaying) {
+                lastReportedPlaying = b;
+                if (window.AndroidBridge && window.AndroidBridge.reportPlayingState) {
+                  window.AndroidBridge.reportPlayingState(b);
                 }
               }
             }
@@ -2769,6 +3263,16 @@ fun ZeroSuggestionPlayer(
                 if (data && data.event === 'infoDelivery' && data.info) {
                   if (typeof data.info.currentTime === 'number') {
                     notifyTime(data.info.currentTime);
+                  }
+                  if (typeof data.info.duration === 'number' && data.info.duration > 0) {
+                    notifyDuration(data.info.duration);
+                  }
+                  if (typeof data.info.playerState === 'number') {
+                    if (data.info.playerState === 1) {
+                      notifyPlayingState(true);
+                    } else if (data.info.playerState === 2 || data.info.playerState === 0) {
+                      notifyPlayingState(false);
+                    }
                   }
                   if (!orientationReported && data.info.videoData && data.info.videoData.title) {
                     var tLower = data.info.videoData.title.toLowerCase();
@@ -2800,11 +3304,22 @@ fun ZeroSuggestionPlayer(
                   host: 'https://www.youtube-nocookie.com',
                   events: {
                     'onReady': function(event) {
+                      try {
+                        if (player && typeof player.getDuration === 'function') {
+                          var d = player.getDuration();
+                          if (d > 0) notifyDuration(d);
+                        }
+                      } catch(e) {}
                       if (initialStartSec > 0) {
                         window.seekToScene(initialStartSec);
                       }
                     },
                     'onStateChange': function(event) {
+                      if (event.data === 1) {
+                        notifyPlayingState(true);
+                      } else if (event.data === 2 || event.data === 0) {
+                        notifyPlayingState(false);
+                      }
                       if (event.data === 0) { // ENDED
                         if (window.AndroidBridge && window.AndroidBridge.reportEnded) {
                           window.AndroidBridge.reportEnded();
@@ -2816,15 +3331,21 @@ fun ZeroSuggestionPlayer(
               } catch(e) {}
             }
 
-            var activeZoomMode = 'AUTO_FILL';
+            var activeZoomMode = 'FIT_ORIGINAL';
 
-            // Poll current time every 400ms, detect exact video stream aspect ratio, & ensure inner zoom style is injected
+            // Poll current time & duration every 400ms, detect exact video stream aspect ratio, & ensure inner zoom style is injected
             setInterval(function() {
               try {
                 var vEl = getInnerVideoElement();
                 if (vEl) {
                   if (typeof vEl.currentTime === 'number' && !isNaN(vEl.currentTime) && vEl.currentTime > 0) {
                     notifyTime(vEl.currentTime);
+                  }
+                  if (typeof vEl.duration === 'number' && !isNaN(vEl.duration) && vEl.duration > 0) {
+                    notifyDuration(vEl.duration);
+                  }
+                  if ((vEl.src || vEl.currentSrc) && vEl.readyState > 0) {
+                    notifyPlayingState(!vEl.paused && !vEl.ended);
                   }
                   if (!orientationReported && vEl.videoWidth > 0 && vEl.videoHeight > 0) {
                     orientationReported = true;
@@ -2837,6 +3358,12 @@ fun ZeroSuggestionPlayer(
                   var t = player.getCurrentTime();
                   if (typeof t === 'number' && !isNaN(t)) {
                     notifyTime(t);
+                  }
+                  if (typeof player.getDuration === 'function') {
+                    var pd = player.getDuration();
+                    if (typeof pd === 'number' && !isNaN(pd) && pd > 0) {
+                      notifyDuration(pd);
+                    }
                   }
                 } else {
                   var iframe = document.getElementById('focus-yt-iframe');
@@ -2852,6 +3379,17 @@ fun ZeroSuggestionPlayer(
 
             window.seekToScene = function(sec) {
               latestKnownTime = sec;
+              // 1. Direct HTML5 <video> element seek (instantaneous even when zoomed in!)
+              try {
+                var vEl = getInnerVideoElement();
+                if (vEl && (vEl.src || vEl.currentSrc)) {
+                  vEl.currentTime = sec;
+                  if (vEl.paused) {
+                    vEl.play();
+                  }
+                }
+              } catch(e) {}
+              // 2. YouTube IFrame Player API seek
               try {
                 if (player && typeof player.seekTo === 'function') {
                   player.seekTo(sec, true);
@@ -2860,6 +3398,7 @@ fun ZeroSuggestionPlayer(
                   }
                 }
               } catch(e) {}
+              // 3. YouTube postMessage command fallback
               try {
                 var iframe = document.getElementById('focus-yt-iframe');
                 if (iframe && iframe.contentWindow) {
@@ -2876,9 +3415,52 @@ fun ZeroSuggestionPlayer(
                 }
               } catch(e) {}
               notifyTime(sec);
+              notifyPlayingState(true);
+            };
+
+            window.playScene = function() {
+              try {
+                var ifr = document.getElementById('focus-yt-iframe');
+                if (ifr && ifr.contentDocument) {
+                  var largeBtn = ifr.contentDocument.querySelector('.ytp-large-play-button');
+                  var cuedOverlay = ifr.contentDocument.querySelector('.ytp-cued-thumbnail-overlay');
+                  if (largeBtn && (!cuedOverlay || cuedOverlay.style.display !== 'none')) {
+                    largeBtn.click();
+                  }
+                }
+              } catch(e) {}
+              try {
+                var vEl = getInnerVideoElement();
+                if (vEl && (vEl.src || vEl.currentSrc) && vEl.paused) {
+                  var p = vEl.play();
+                  if (p && typeof p.catch === 'function') p.catch(function(){});
+                }
+              } catch(e) {}
+              try {
+                if (player && typeof player.playVideo === 'function') {
+                  player.playVideo();
+                }
+              } catch(e) {}
+              try {
+                var iframe = document.getElementById('focus-yt-iframe');
+                if (iframe && iframe.contentWindow) {
+                  iframe.contentWindow.postMessage(JSON.stringify({
+                    event: 'command',
+                    func: 'playVideo',
+                    args: []
+                  }), '*');
+                }
+              } catch(e) {}
+              notifyPlayingState(true);
             };
 
             window.pauseScene = function() {
+              try {
+                var vEl = getInnerVideoElement();
+                if (vEl && !vEl.paused) {
+                  vEl.pause();
+                }
+              } catch(e) {}
               try {
                 if (player && typeof player.pauseVideo === 'function') {
                   player.pauseVideo();
@@ -2894,28 +3476,61 @@ fun ZeroSuggestionPlayer(
                   }), '*');
                 }
               } catch(e) {}
+              notifyPlayingState(false);
             };
 
             window.togglePlayPauseScene = function() {
+              var isActuallyPlaying = (lastReportedPlaying === true);
+              try {
+                var vEl = getInnerVideoElement();
+                if (vEl && (vEl.src || vEl.currentSrc) && vEl.readyState > 0) {
+                  isActuallyPlaying = (!vEl.paused && !vEl.ended);
+                } else if (player && typeof player.getPlayerState === 'function') {
+                  var st = player.getPlayerState();
+                  if (st === 1) isActuallyPlaying = true;
+                  else if (st === 2 || st === 0 || st === 5 || st === -1) isActuallyPlaying = false;
+                }
+              } catch(e) {}
+
+              if (isActuallyPlaying) {
+                window.pauseScene();
+              } else {
+                window.playScene();
+              }
+            };
+
+            window.setPlayerVolume = function(pct) {
+              var vol = Math.max(0, Math.min(100, parseInt(pct, 10) || 0));
               try {
                 var vEl = getInnerVideoElement();
                 if (vEl) {
-                  if (vEl.paused) {
-                    vEl.play();
-                  } else {
-                    vEl.pause();
-                  }
-                  return;
+                  vEl.muted = (vol === 0);
+                  vEl.volume = vol / 100.0;
                 }
               } catch(e) {}
               try {
-                if (player && typeof player.getPlayerState === 'function') {
-                  var st = player.getPlayerState();
-                  if (st === 1) {
-                    player.pauseVideo();
+                if (player && typeof player.setVolume === 'function') {
+                  if (vol === 0 && typeof player.mute === 'function') {
+                    player.mute();
                   } else {
-                    player.playVideo();
+                    if (typeof player.unMute === 'function') player.unMute();
+                    player.setVolume(vol);
                   }
+                }
+              } catch(e) {}
+              try {
+                var iframe = document.getElementById('focus-yt-iframe');
+                if (iframe && iframe.contentWindow) {
+                  iframe.contentWindow.postMessage(JSON.stringify({
+                    event: 'command',
+                    func: vol === 0 ? 'mute' : 'unMute',
+                    args: []
+                  }), '*');
+                  iframe.contentWindow.postMessage(JSON.stringify({
+                    event: 'command',
+                    func: 'setVolume',
+                    args: [vol]
+                  }), '*');
                 }
               } catch(e) {}
             };
@@ -2924,6 +3539,7 @@ fun ZeroSuggestionPlayer(
               try {
                 var ifr = document.getElementById('focus-yt-iframe');
                 if (ifr && ifr.contentDocument) {
+                  attachSeekBarTouchEnhancer();
                   var v = ifr.contentDocument.querySelector('video');
                   if (v) {
                     if (!v._focusRateGuardAttached) {
@@ -2941,6 +3557,91 @@ fun ZeroSuggestionPlayer(
                 }
               } catch(e) {}
               return null;
+            }
+
+            // Enhances YouTube's inner seek bar / progress bar so touch-dragging (scrubbing) forward & backward works smoothly in fullscreen
+            function attachSeekBarTouchEnhancer() {
+              try {
+                var ifr = document.getElementById('focus-yt-iframe');
+                if (!ifr || !ifr.contentDocument || !ifr.contentDocument.body) return;
+                var doc = ifr.contentDocument;
+                if (doc._focusSeekEnhancerAttached) return;
+                doc._focusSeekEnhancerAttached = true;
+
+                if (doc.head && !doc.getElementById('focus-seekbar-touch-style')) {
+                  var st = doc.createElement('style');
+                  st.id = 'focus-seekbar-touch-style';
+                  st.textContent =
+                    '.ytp-progress-bar-container { height: 26px !important; padding: 8px 0 !important; touch-action: none !important; pointer-events: auto !important; z-index: 9999 !important; } ' +
+                    '.ytp-progress-bar, .ytp-scrubber-container, .PlayerControlsProgressBarHost, [role="slider"] { touch-action: none !important; pointer-events: auto !important; } ' +
+                    '.ytp-scrubber-button { width: 16px !important; height: 16px !important; border-radius: 8px !important; }';
+                  doc.head.appendChild(st);
+                }
+
+                var isScrubbingSeekBar = false;
+
+                function findSeekBarElement(target) {
+                  if (!target || !target.closest) return null;
+                  return target.closest('.ytp-progress-bar-container, .ytp-progress-bar, .ytp-scrubber-container, .PlayerControlsProgressBarHost, .progress-bar-line, .ytm-progress-bar, [role="slider"]');
+                }
+
+                function applySeekFromTouch(touch, barEl) {
+                  var v = doc.querySelector('video');
+                  if (!v || !v.duration || isNaN(v.duration) || v.duration <= 0) return;
+                  var track = doc.querySelector('.ytp-progress-bar, .PlayerControlsProgressBarHost, [role="slider"]') || barEl;
+                  var rect = track ? track.getBoundingClientRect() : null;
+                  var left = (rect && rect.width > 20) ? rect.left : 16;
+                  var width = (rect && rect.width > 20) ? rect.width : ( doc.documentElement.clientWidth - 32 );
+                  if (width <= 20) return;
+                  var ratio = (touch.clientX - left) / width;
+                  if (ratio < 0) ratio = 0;
+                  if (ratio > 1) ratio = 1;
+                  var targetTime = ratio * v.duration;
+                  v.currentTime = targetTime;
+                  if (player && typeof player.seekTo === 'function') {
+                    try { player.seekTo(targetTime, true); } catch(err) {}
+                  }
+                  notifyTime(targetTime);
+                }
+
+                doc.addEventListener('touchstart', function(e) {
+                  if (!e.touches || e.touches.length !== 1) return;
+                  var t = e.touches[0];
+                  var barEl = findSeekBarElement(e.target);
+                  if (barEl) {
+                    isScrubbingSeekBar = true;
+                    applySeekFromTouch(t, barEl);
+                  }
+                }, { passive: true, capture: true });
+
+                doc.addEventListener('touchmove', function(e) {
+                  if (!e.touches || e.touches.length !== 1) return;
+                  var t = e.touches[0];
+                  if (!isScrubbingSeekBar) {
+                    var barElCheck = findSeekBarElement(e.target);
+                    if (barElCheck) {
+                      isScrubbingSeekBar = true;
+                    }
+                  }
+                  if (isScrubbingSeekBar) {
+                    var barEl = doc.querySelector('.ytp-progress-bar, .ytp-progress-bar-container, [role="slider"]');
+                    applySeekFromTouch(t, barEl);
+                  }
+                }, { passive: true, capture: true });
+
+                doc.addEventListener('touchend', function(e) {
+                  if (!isScrubbingSeekBar) return;
+                  isScrubbingSeekBar = false;
+                  if (e.changedTouches && e.changedTouches.length > 0) {
+                    var barEl = doc.querySelector('.ytp-progress-bar, .ytp-progress-bar-container, [role="slider"]');
+                    applySeekFromTouch(e.changedTouches[0], barEl);
+                  }
+                }, { passive: true, capture: true });
+
+                doc.addEventListener('touchcancel', function() {
+                  isScrubbingSeekBar = false;
+                }, { passive: true, capture: true });
+              } catch(e) {}
             }
 
             // Dynamic Press-and-Hold Playback Speed Controller (supports 0.5x, 1.0x, 1.5x, 2.0x, 2.5x, 3.0x, 3.5x, 4.0x)
@@ -3046,6 +3747,11 @@ fun ZeroSuggestionPlayer(
                 if (mode) activeZoomMode = mode;
                 var ifr = document.getElementById('focus-yt-iframe');
                 if (!ifr) return;
+                attachSeekBarTouchEnhancer();
+                // Do not re-apply DOM styles every 400ms if zoom mode has not changed (prevents cancelling active seek bar drag!)
+                if (ifr._appliedZoomMode === activeZoomMode) return;
+                ifr._appliedZoomMode = activeZoomMode;
+
                 if (activeZoomMode === 'AUTO_FILL') {
                   ifr.style.transform = 'scale(1.02)';
                 } else if (activeZoomMode === 'ULTRA_FILL') {
@@ -3053,7 +3759,6 @@ fun ZeroSuggestionPlayer(
                 } else {
                   ifr.style.transform = 'scale(1.0)';
                 }
-                // Inject object-fit: cover directly on the inner HTML5 <video> so video fills 100% of screen with zero black bars!
                 if (ifr.contentDocument && ifr.contentDocument.head) {
                   var styleEl = ifr.contentDocument.getElementById('focus-inner-zoom-style');
                   if (!styleEl) {
@@ -3061,10 +3766,11 @@ fun ZeroSuggestionPlayer(
                     styleEl.id = 'focus-inner-zoom-style';
                     ifr.contentDocument.head.appendChild(styleEl);
                   }
+                  var hideInnerClutterCss = '.ytp-chrome-top, .ytp-chrome-bottom, .ytp-gradient-top, .ytp-gradient-bottom, .ytp-pause-overlay, .ytp-scroll-min, .ytp-ce-element, .ytp-cards-teaser, .ytp-cards-button, .ytp-watermark, .iv-branding, .branding-img, .branding-img-container, .ytp-copylink-button, .ytp-impression-link, .ytp-PaidContentOverlay, .ytp-endscreen-content, .html5-endscreen, .ytp-Videowall-still, .ytp-suggestion-set, .ytp-more-videos-view, .ytp-show-cards-title, .ytp-title, .ytp-title-channel, .ytp-watch-later-button, .ytp-share-button { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; } ';
                   if (mode === 'AUTO_FILL' || mode === 'ULTRA_FILL') {
-                    styleEl.textContent = 'video.html5-main-video, .html5-video-container video { object-fit: cover !important; width: 100vw !important; height: 100vh !important; left: 0 !important; top: 0 !important; }';
+                    styleEl.textContent = hideInnerClutterCss + 'video.html5-main-video, .html5-video-container video { object-fit: cover !important; width: 100vw !important; height: 100vh !important; left: 0 !important; top: 0 !important; }';
                   } else {
-                    styleEl.textContent = 'video.html5-main-video, .html5-video-container video { object-fit: contain !important; }';
+                    styleEl.textContent = hideInnerClutterCss + 'video.html5-main-video, .html5-video-container video { object-fit: contain !important; }';
                   }
                 }
               } catch(e) {}
@@ -3084,8 +3790,8 @@ fun ZeroSuggestionPlayer(
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
 
-                // 1. Force hardware acceleration for smooth 60fps/120fps video rendering
-                setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                // Use default LAYER_TYPE_NONE so WebView renders directly without offscreen rendernode overhead
+                setLayerType(View.LAYER_TYPE_NONE, null)
                 setBackgroundColor(android.graphics.Color.BLACK)
                 isLongClickable = false
                 setOnLongClickListener { true }
@@ -3107,29 +3813,60 @@ fun ZeroSuggestionPlayer(
 
                 addJavascriptInterface(PlayerJsBridge(), "AndroidBridge")
 
-                // Press-and-Hold 2.0x + Horizontal Slide Speed Control (0.5x ➔ 1.0x ➔ 1.5x ➔ 2.0x ➔ 2.5x ➔ 3.0x ➔ 3.5x ➔ 4.0x)
+                // Zoom-Independent Touch Coordinate Normalization +
+                // Double-Tap (Left = -10s, Center = Play/Pause, Right = +10s) +
+                // Press-and-Hold 2.0x + Horizontal Slide Speed Control (0.5x .. 4.0x) +
+                // Two-Finger Pinch-to-Zoom (1.0x .. 2.5x)
                 val speedSteps = floatArrayOf(0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f)
                 val defaultHoldIndex = 3 // 2.0x
                 val density = ctx.resources.displayMetrics.density
-                val touchSlopPx = 20f * density
+                val touchSlopPx = 10f * density
                 val stepWidthPx = 42f * density
 
                 var downX = 0f
                 var downY = 0f
-                var holdOriginX = 0f
+                var downUnscaledX = 0f
+                var downUnscaledY = 0f
+                var downTimestampMs = 0L
+                var holdOriginUnscaledX = 0f
                 var isHoldSpeedMode = false
+                var isPinchGestureActive = false
+                var isBottomTimelineScrubActive = false
+                var isTopHeaderZoneTouch = false
+                var isSideVerticalDragActive = false
+                var sideVerticalDragZone = 0 // -1 = Left (Brightness), 1 = Right (Volume)
+                var lastSideDragY = 0f
                 var currentHoldSpeed = 1.0f
 
-                val holdActivationRunnable = Runnable {
-                    isHoldSpeedMode = true
-                    holdOriginX = downX
-                    currentHoldSpeed = speedSteps[defaultHoldIndex] // 2.0x
-                    parent?.requestDisallowInterceptTouchEvent(true)
-                    // Immediately cancel any pending WebView internal tap/scrub gesture so sliding only controls speed
+                var lastTapTimeMs = 0L
+                var lastTapZone = -99
+
+                /**
+                 * Maps a local WebView touch coordinate back to the unscaled [0..viewDim] container coordinate space.
+                 * When the WebView is scaled by `S = currentOnZoomScale` around its center `(D/2)`, Android's inverse
+                 * matrix maps screen touch `P` to `eventCoord = D/2 + (P - D/2) / S`.
+                 * Multiplying `(eventCoord - D/2)` by `S` restores the exact unscaled screen coordinate `P`!
+                 */
+                fun toUnscaledCoord(eventCoord: Float, viewDim: Float): Float {
+                    val scale = currentOnZoomScale.coerceAtLeast(1.0f)
+                    val center = viewDim / 2f
+                    return (center + (eventCoord - center) * scale).coerceIn(0f, viewDim)
+                }
+
+                fun cancelUnderlyingWebViewTouch() {
                     val now = SystemClock.uptimeMillis()
                     val cancelEvt = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, downX, downY, 0)
                     onTouchEvent(cancelEvt)
                     cancelEvt.recycle()
+                }
+
+                val holdActivationRunnable = Runnable {
+                    if (isPinchGestureActive || isBottomTimelineScrubActive || isTopHeaderZoneTouch || isSideVerticalDragActive) return@Runnable
+                    isHoldSpeedMode = true
+                    holdOriginUnscaledX = downUnscaledX
+                    currentHoldSpeed = speedSteps[defaultHoldIndex] // 2.0x
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    cancelUnderlyingWebViewTouch()
                     evaluateJavascript(
                         "try{if(window.setDynamicPlaybackSpeed){window.setDynamicPlaybackSpeed(2.0);}}catch(e){};",
                         null
@@ -3137,24 +3874,133 @@ fun ZeroSuggestionPlayer(
                     currentOnHoldSpeedChanged(true, 2.0f)
                 }
 
+                val scaleGestureDetector = ScaleGestureDetector(
+                    ctx,
+                    object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+                            if (!isPinchGestureActive) {
+                                isPinchGestureActive = true
+                                cancelUnderlyingWebViewTouch()
+                            }
+                            mainHandler.removeCallbacks(holdActivationRunnable)
+                            if (isHoldSpeedMode) {
+                                isHoldSpeedMode = false
+                                currentHoldSpeed = 1.0f
+                                evaluateJavascript(
+                                    "try{if(window.setDynamicPlaybackSpeed){window.setDynamicPlaybackSpeed(1.0);}}catch(e){};",
+                                    null
+                                )
+                                currentOnHoldSpeedChanged(false, 1.0f)
+                            }
+                            parent?.requestDisallowInterceptTouchEvent(true)
+                            currentOnPinchZoomChanged(true, 1.0f)
+                            return true
+                        }
+
+                        override fun onScale(detector: ScaleGestureDetector): Boolean {
+                            val factor = detector.scaleFactor
+                            if (abs(factor - 1.0f) > 0.004f) {
+                                currentOnPinchZoomChanged(true, factor)
+                            }
+                            return true
+                        }
+
+                        override fun onScaleEnd(detector: ScaleGestureDetector) {
+                            currentOnPinchZoomChanged(false, 1.0f)
+                            currentOnScreenTapped()
+                        }
+                    }
+                )
+
                 setOnTouchListener { view, event ->
+                    scaleGestureDetector.onTouchEvent(event)
+
+                    if (event.pointerCount >= 2) {
+                        mainHandler.removeCallbacks(holdActivationRunnable)
+                        if (!isPinchGestureActive) {
+                            isPinchGestureActive = true
+                            cancelUnderlyingWebViewTouch()
+                        }
+                        return@setOnTouchListener true
+                    }
+
+                    val viewW = view.width.toFloat().coerceAtLeast(1f)
+                    val viewH = view.height.toFloat().coerceAtLeast(1f)
+                    val unscaledX = toUnscaledCoord(event.x, viewW)
+                    val unscaledY = toUnscaledCoord(event.y, viewH)
+                    val seekHorizPadPx = 16f * density
+
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
                             downX = event.x
                             downY = event.y
+                            downUnscaledX = unscaledX
+                            downUnscaledY = unscaledY
+                            downTimestampMs = SystemClock.uptimeMillis()
                             isHoldSpeedMode = false
+                            isPinchGestureActive = false
+                            isSideVerticalDragActive = false
+                            sideVerticalDragZone = 0
+                            lastSideDragY = unscaledY
+                            currentOnScreenTapped()
                             mainHandler.removeCallbacks(holdActivationRunnable)
-                            mainHandler.postDelayed(holdActivationRunnable, 260L)
-                            false
+
+                            val bottomSeekZonePx = 44f * density
+                            val topHeaderZonePx = 48f * density
+                            isBottomTimelineScrubActive = (unscaledY >= viewH - bottomSeekZonePx)
+                            isTopHeaderZoneTouch = (unscaledY <= topHeaderZonePx)
+
+                            if (isBottomTimelineScrubActive) {
+                                parent?.requestDisallowInterceptTouchEvent(true)
+                                val ratio = ((unscaledX - seekHorizPadPx) / (viewW - 2f * seekHorizPadPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
+                                currentOnTimelineSeekRatio(ratio, false)
+                                cancelUnderlyingWebViewTouch()
+                                true
+                            } else if (isTopHeaderZoneTouch) {
+                                false
+                            } else {
+                                mainHandler.postDelayed(holdActivationRunnable, 420L)
+                                false
+                            }
                         }
                         MotionEvent.ACTION_MOVE -> {
-                            if (!isHoldSpeedMode) {
-                                if (abs(event.x - downX) > touchSlopPx || abs(event.y - downY) > touchSlopPx) {
+                            if (isPinchGestureActive) {
+                                true
+                            } else if (isBottomTimelineScrubActive) {
+                                parent?.requestDisallowInterceptTouchEvent(true)
+                                val ratio = ((unscaledX - seekHorizPadPx) / (viewW - 2f * seekHorizPadPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
+                                currentOnTimelineSeekRatio(ratio, false)
+                                true
+                            } else if (isSideVerticalDragActive) {
+                                parent?.requestDisallowInterceptTouchEvent(true)
+                                val stepDy = lastSideDragY - unscaledY // Positive when moving UP, negative when moving DOWN
+                                lastSideDragY = unscaledY
+                                val deltaFraction = stepDy / (viewH * 0.65f).coerceAtLeast(1f)
+                                if (abs(deltaFraction) > 0.002f) {
+                                    currentOnSideVerticalDelta(sideVerticalDragZone, deltaFraction)
+                                }
+                                true
+                            } else if (!isHoldSpeedMode) {
+                                val dx = unscaledX - downUnscaledX
+                                val dy = unscaledY - downUnscaledY
+                                if (abs(dx) > touchSlopPx || abs(dy) > touchSlopPx) {
                                     mainHandler.removeCallbacks(holdActivationRunnable)
+                                    // Check if user is sliding vertically on the Left (Brightness) or Right (Volume) side
+                                    val isLeftOrRightSide = (downUnscaledX < viewW * 0.35f) || (downUnscaledX > viewW * 0.65f)
+                                    if (isLeftOrRightSide && abs(dy) > abs(dx) * 1.2f && abs(dy) > touchSlopPx) {
+                                        isSideVerticalDragActive = true
+                                        sideVerticalDragZone = if (downUnscaledX < viewW * 0.35f) -1 else 1
+                                        lastSideDragY = unscaledY
+                                        parent?.requestDisallowInterceptTouchEvent(true)
+                                        cancelUnderlyingWebViewTouch()
+                                        val initialDelta = (downUnscaledY - unscaledY) / (viewH * 0.65f).coerceAtLeast(1f)
+                                        currentOnSideVerticalDelta(sideVerticalDragZone, initialDelta)
+                                        return@setOnTouchListener true
+                                    }
                                 }
                                 false
                             } else {
-                                val deltaX = event.x - holdOriginX
+                                val deltaX = unscaledX - holdOriginUnscaledX
                                 val stepOffset = (deltaX / stepWidthPx).roundToInt()
                                 val targetIdx = (defaultHoldIndex + stepOffset).coerceIn(0, speedSteps.lastIndex)
                                 val newSpeed = speedSteps[targetIdx]
@@ -3171,7 +4017,25 @@ fun ZeroSuggestionPlayer(
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                             mainHandler.removeCallbacks(holdActivationRunnable)
-                            if (isHoldSpeedMode) {
+                            if (isPinchGestureActive) {
+                                isPinchGestureActive = false
+                                currentOnPinchZoomChanged(false, 1.0f)
+                                currentOnScreenTapped()
+                                parent?.requestDisallowInterceptTouchEvent(false)
+                                cancelUnderlyingWebViewTouch()
+                                true
+                            } else if (isBottomTimelineScrubActive) {
+                                isBottomTimelineScrubActive = false
+                                parent?.requestDisallowInterceptTouchEvent(false)
+                                val ratio = ((unscaledX - seekHorizPadPx) / (viewW - 2f * seekHorizPadPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
+                                currentOnTimelineSeekRatio(ratio, true)
+                                true
+                            } else if (isSideVerticalDragActive) {
+                                isSideVerticalDragActive = false
+                                sideVerticalDragZone = 0
+                                parent?.requestDisallowInterceptTouchEvent(false)
+                                true
+                            } else if (isHoldSpeedMode) {
                                 isHoldSpeedMode = false
                                 currentHoldSpeed = 1.0f
                                 parent?.requestDisallowInterceptTouchEvent(false)
@@ -3180,13 +4044,49 @@ fun ZeroSuggestionPlayer(
                                     null
                                 )
                                 currentOnHoldSpeedChanged(false, 1.0f)
-                                // Cancel underlying WebView click so releasing finger after speed-hold doesn't pause the video
-                                val now = SystemClock.uptimeMillis()
-                                val cancelEvt = MotionEvent.obtain(now, now, MotionEvent.ACTION_CANCEL, event.x, event.y, 0)
-                                view.onTouchEvent(cancelEvt)
-                                cancelEvt.recycle()
+                                cancelUnderlyingWebViewTouch()
                                 true
                             } else {
+                                val nowMs = SystemClock.uptimeMillis()
+                                val isQuickTap = (event.actionMasked == MotionEvent.ACTION_UP) &&
+                                    (nowMs - downTimestampMs <= 280L) &&
+                                    (abs(unscaledX - downUnscaledX) <= touchSlopPx * 1.5f) &&
+                                    (abs(unscaledY - downUnscaledY) <= touchSlopPx * 1.5f) &&
+                                    !isTopHeaderZoneTouch
+
+                                if (isQuickTap) {
+                                    val tapZone = when {
+                                        unscaledX < viewW * 0.35f -> -1 // Left Zone: -10s Backward
+                                        unscaledX > viewW * 0.65f -> 1  // Right Zone: +10s Forward
+                                        else -> 0                       // Center Zone: Play / Pause
+                                    }
+                                    if (nowMs - lastTapTimeMs <= 320L && tapZone == lastTapZone) {
+                                        // Double Tap Detected!
+                                        lastTapTimeMs = 0L
+                                        lastTapZone = -99
+                                        cancelUnderlyingWebViewTouch()
+                                        currentOnDoubleTapAction(tapZone)
+                                        return@setOnTouchListener true
+                                    } else {
+                                        lastTapTimeMs = nowMs
+                                        lastTapZone = tapZone
+                                        if (tapZone == 0 && !currentIsVideoPlaying) {
+                                            // Video is paused or in initial unstarted state:
+                                            // Clicking in the Center immediately starts playing the video
+                                            // AND lets the native WebView click hit YouTube's center Play button!
+                                            evaluateJavascript(
+                                                "try{if(window.playScene){window.playScene();}}catch(e){};",
+                                                null
+                                            )
+                                            return@setOnTouchListener false
+                                        }
+                                        // When video is already playing, cancel single-tap on WebView so single-tap only reveals HUD,
+                                        // while Double-Tap in Center toggles Play/Pause!
+                                        cancelUnderlyingWebViewTouch()
+                                        return@setOnTouchListener true
+                                    }
+                                }
+                                isTopHeaderZoneTouch = false
                                 false
                             }
                         }
@@ -3261,6 +4161,10 @@ fun ZeroSuggestionPlayer(
                 lastHandledZoomMode = fullscreenZoomMode
                 webView.loadUrl("javascript:try{if(window.setIframeZoomMode){window.setIframeZoomMode('$fullscreenZoomMode');}}catch(e){};")
             }
+            if (playerVolumePercent != lastHandledVolumePercent) {
+                lastHandledVolumePercent = playerVolumePercent
+                webView.loadUrl("javascript:try{if(window.setPlayerVolume){window.setPlayerVolume($playerVolumePercent);}}catch(e){};")
+            }
         }
     )
 }
@@ -3328,7 +4232,7 @@ fun DistractionBlockedCurtain(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "अगर यह वीडियो आपकी पढ़ाई, शिक्षा, या काम से जुड़ा है, तो आप 'Allow & Play' दबाकर इसे तुरंत चला सकते हैं।",
+                text = "If this video is related to your study, education, or work, tap 'Allow & Play' to watch it immediately.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = Color(0xFFB0BEC5),
                 textAlign = TextAlign.Center
@@ -3345,7 +4249,7 @@ fun DistractionBlockedCurtain(
                 ),
                 modifier = Modifier.fillMaxWidth(0.85f)
             ) {
-                Text("📖 Allow & Play (यह पढ़ाई का वीडियो है)")
+                Text("📖 Allow & Play (Educational / Work Video)")
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -3356,7 +4260,7 @@ fun DistractionBlockedCurtain(
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth(0.85f)
             ) {
-                Text("🚫 Block & Delete / हटा दें", color = MaterialTheme.colorScheme.error)
+                Text("🚫 Block & Delete", color = MaterialTheme.colorScheme.error)
             }
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -3364,7 +4268,7 @@ fun DistractionBlockedCurtain(
             androidx.compose.material3.TextButton(
                 onClick = onBack
             ) {
-                Text("Back / वापस जाएं", color = Color.LightGray)
+                Text("Back", color = Color.LightGray)
             }
         }
     }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -76,11 +77,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -125,6 +128,7 @@ fun HomeScreen(
     onOpenReminderScreen: (() -> Unit)? = null,
     onOpenDashboardTab: (() -> Unit)? = null
 ) {
+    val haptic = LocalHapticFeedback.current
     var showSwitchSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -274,8 +278,9 @@ fun HomeScreen(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // Home Top App Bar with AI Smart Global & Local Feed Search
+            // Home Top App Bar with AI Smart Global & Local Feed Search (Zero duplicate top inset!)
             TopAppBar(
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 title = {
                     if (isSearchActive) {
                         OutlinedTextField(
@@ -283,7 +288,7 @@ fun HomeScreen(
                             onValueChange = { searchQuery = it },
                             placeholder = {
                                 Text(
-                                    "🧠 AI Smart Search: रफ आईडिया, टॉपिक, या टाइम (जैसे 6 min) लिखें...",
+                                    "🧠 AI Smart Search: type idea, topic, or time (e.g. 6 min)...",
                                     fontSize = 11.sp
                                 )
                             },
@@ -309,9 +314,11 @@ fun HomeScreen(
                                 Text(
                                     text = homeTitle,
                                     style = MaterialTheme.typography.titleMedium,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
@@ -320,17 +327,23 @@ fun HomeScreen(
                                     Text(
                                         text = "🛡️ SHIELD",
                                         style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White,
+                                        maxLines = 1,
+                                        softWrap = false,
                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                     )
                                 }
                             }
                             Text(
-                                text = if (pinnedGroup != null) "Active Group (${videos.size} videos) • Work & Focus Only"
-                                else if (pinnedPlaylist != null) "Active Playlist (${videos.size} videos) • Work & Focus Only"
+                                text = if (pinnedGroup != null) "Active Group (${videos.size} videos)"
+                                else if (pinnedPlaylist != null) "Active Playlist (${videos.size} videos)"
                                 else "No active feed chosen",
                                 style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -460,7 +473,7 @@ fun HomeScreen(
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "🧠 AI Smart Search सक्रिय: पूरा शब्द याद न हो तो भी रफ आईडिया (हिंदी/Hinglish/English या ~6 min) लिखें — AI अर्थ समझकर वीडियो और नोट ढूंढ देगा:",
+                        text = "🧠 AI Smart Search Active: Type any topic, keyword, or approximate timestamp (e.g. ~6 min) to find videos & scene notes:",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
@@ -475,55 +488,55 @@ fun HomeScreen(
                             FilterChip(
                                 selected = searchTargetMode == "BOTH",
                                 onClick = { searchTargetMode = "BOTH" },
-                                label = { Text("🔍 दोनों: वीडियो + नोट्स", fontSize = 11.sp) }
+                                label = { Text("🔍 Both: Videos + Notes", fontSize = 11.sp) }
                             )
                         }
                         item {
                             FilterChip(
                                 selected = searchTargetMode == "NOTES_ONLY",
                                 onClick = { searchTargetMode = "NOTES_ONLY" },
-                                label = { Text("📝 सिर्फ नोट्स / सीन टाइम", fontSize = 11.sp) }
+                                label = { Text("📝 Notes / Timestamps Only", fontSize = 11.sp) }
                             )
                         }
                         item {
                             FilterChip(
                                 selected = searchTargetMode == "VIDEOS_ONLY",
                                 onClick = { searchTargetMode = "VIDEOS_ONLY" },
-                                label = { Text("🎬 सिर्फ वीडियो", fontSize = 11.sp) }
+                                label = { Text("🎬 Videos Only", fontSize = 11.sp) }
                             )
                         }
                         item {
                             FilterChip(
                                 selected = searchScopeGlobal,
                                 onClick = { searchScopeGlobal = true },
-                                label = { Text("🌐 सभी (${filteredGlobalVideos.size})", fontSize = 11.sp) }
+                                label = { Text("🌐 All (${filteredGlobalVideos.size})", fontSize = 11.sp) }
                             )
                         }
                         item {
                             FilterChip(
                                 selected = !searchScopeGlobal,
                                 onClick = { searchScopeGlobal = false },
-                                label = { Text("📌 होम फ़ीड (${filteredFeedVideos.size})", fontSize = 11.sp) }
+                                label = { Text("📌 Home Feed (${filteredFeedVideos.size})", fontSize = 11.sp) }
                             )
                         }
                     }
                 }
             }
 
-            // Video Playlist & Notes Status Filter Bar (Always visible when videos exist)
+            // Video Playlist & Notes Status Filter Bar (Compact single row)
             if (baseVideos.isNotEmpty() || videoStatusFilter != "ALL") {
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.surface)
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                        .padding(horizontal = 12.dp, vertical = 1.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     item {
                         FilterChip(
                             selected = videoStatusFilter == "ALL",
                             onClick = { videoStatusFilter = "ALL" },
-                            label = { Text("सभी वीडियो (${baseVideos.size})", fontSize = 11.sp) }
+                            label = { Text("All (${baseVideos.size})", fontSize = 11.sp) }
                         )
                     }
                     item {
@@ -532,7 +545,7 @@ fun HomeScreen(
                             onClick = {
                                 videoStatusFilter = if (videoStatusFilter == "SAVED_IN_PLAYLIST") "ALL" else "SAVED_IN_PLAYLIST"
                             },
-                            label = { Text("✅ प्लेलिस्ट में सेव ($savedInPlaylistCount)", fontSize = 11.sp) }
+                            label = { Text("✅ In Playlist ($savedInPlaylistCount)", fontSize = 11.sp) }
                         )
                     }
                     item {
@@ -541,7 +554,7 @@ fun HomeScreen(
                             onClick = {
                                 videoStatusFilter = if (videoStatusFilter == "UNSAVED") "ALL" else "UNSAVED"
                             },
-                            label = { Text("⚪ बिना प्लेलिस्ट ($unsavedInPlaylistCount)", fontSize = 11.sp) }
+                            label = { Text("⚪ Unsaved ($unsavedInPlaylistCount)", fontSize = 11.sp) }
                         )
                     }
                     item {
@@ -550,18 +563,17 @@ fun HomeScreen(
                             onClick = {
                                 videoStatusFilter = if (videoStatusFilter == "WITH_NOTES") "ALL" else "WITH_NOTES"
                             },
-                            label = { Text("📝 नोट/कमेंट वाली ($withNotesCount)", fontSize = 11.sp) }
+                            label = { Text("📝 With Notes ($withNotesCount)", fontSize = 11.sp) }
                         )
                     }
                 }
             }
 
-            // === DRAG & DROP PLAYLIST TARGET DOCK ON HOME ===
-            if (allPlaylists.isNotEmpty() && displayedVideos.isNotEmpty()) {
-                val isDragging = activeDraggedHomeVideo != null
+            // === DRAG & DROP PLAYLIST TARGET DOCK ON HOME (Only shown when actively dragging a video so Home has maximum space!) ===
+            if (activeDraggedHomeVideo != null && allPlaylists.isNotEmpty()) {
+                val isDragging = true
                 Surface(
-                    color = if (isDragging) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
-                    else MaterialTheme.colorScheme.surface,
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("home_playlist_drop_dock")
@@ -573,9 +585,9 @@ fun HomeScreen(
                     ) {
                         Text(
                             text = if (isDragging) {
-                                "📦 '${activeDraggedHomeVideo?.title}' को जिस प्लेलिस्ट में सेव/मूव करना है उस पर ड्रॉप करें:"
+                                "📦 Drop '${activeDraggedHomeVideo?.title}' onto any playlist below to save/move:"
                             } else {
-                                "🖐️ Drag & Drop: वीडियो के '⠿' हैंडल को पकड़कर किसी भी प्लेलिस्ट पर ड्रॉप करें:"
+                                "🖐️ Drag & Drop: Hold a video's '⠿' handle and drop onto any playlist:"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
@@ -671,7 +683,7 @@ fun HomeScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp, 12.dp, 16.dp, 88.dp),
+                    contentPadding = PaddingValues(12.dp, 8.dp, 12.dp, 98.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(
@@ -696,6 +708,7 @@ fun HomeScreen(
                                 .pointerInput(video.id) {
                                     detectDragGesturesAfterLongPress(
                                         onDragStart = { localOffset ->
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             activeDraggedHomeVideo = video
                                             dragPointerInRoot = cardPosInRoot + localOffset
                                         },
@@ -707,7 +720,10 @@ fun HomeScreen(
                                         onDragCancel = { activeDraggedHomeVideo = null }
                                     )
                                 }
-                                .clickable { onSelectVideo(video) }
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onSelectVideo(video)
+                                }
                                 .testTag("home_video_${video.id}"),
                             shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(
@@ -721,15 +737,15 @@ fun HomeScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(8.dp),
+                                    .padding(10.dp),
                                 verticalAlignment = Alignment.Top
                             ) {
-                                // Prominent Enlarged Thumbnail (160dp width, 16:9, rounded corners)
+                                // Mobile-Optimized 16:9 Thumbnail (132dp width gives plenty of breathing room to title & action pills on Realme P4)
                                 Box(
                                     modifier = Modifier
-                                        .width(160.dp)
+                                        .width(132.dp)
                                         .aspectRatio(16f / 9f)
-                                        .clip(RoundedCornerShape(11.dp))
+                                        .clip(RoundedCornerShape(10.dp))
                                         .background(Color.Black)
                                 ) {
                                     AsyncImage(
@@ -877,6 +893,8 @@ fun HomeScreen(
                                         Text(
                                             text = video.title,
                                             style = MaterialTheme.typography.titleSmall,
+                                            fontSize = 13.5.sp,
+                                            lineHeight = 18.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis,
@@ -887,7 +905,7 @@ fun HomeScreen(
                                                 com.example.ui.player.parseSceneNotes(linkedNote)
                                                     .firstOrNull { it.timestampSeconds != null }
                                             }
-                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
                                             Surface(
                                                 shape = RoundedCornerShape(6.dp),
                                                 color = Color(0xFFFFF3E0),
@@ -898,6 +916,7 @@ fun HomeScreen(
                                                         shape = RoundedCornerShape(6.dp)
                                                     )
                                                     .clickable {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                         onSelectVideoAtTimestamp(video, firstNoteEntry?.timestampSeconds ?: 0)
                                                     }
                                                     .testTag("video_pencil_note_badge_${video.id}")
@@ -918,11 +937,45 @@ fun HomeScreen(
                                                             text = firstNoteEntry.timestampLabel,
                                                             color = Color(0xFFE65100),
                                                             fontSize = 9.sp,
+                                                            maxLines = 1,
+                                                            softWrap = false,
                                                             fontWeight = FontWeight.ExtraBold
                                                         )
                                                     }
                                                 }
                                             }
+                                        }
+
+                                        // Compact Drag Handle integrated cleanly in top-right of title row
+                                        var dragHandlePos by remember { mutableStateOf(Offset.Zero) }
+                                        Box(
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .onGloballyPositioned { dragHandlePos = it.positionInRoot() }
+                                                .pointerInput(video.id) {
+                                                    detectDragGestures(
+                                                        onDragStart = { localOffset ->
+                                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                            activeDraggedHomeVideo = video
+                                                            dragPointerInRoot = dragHandlePos + localOffset
+                                                        },
+                                                        onDrag = { change, dragAmount ->
+                                                            change.consume()
+                                                            dragPointerInRoot += dragAmount
+                                                        },
+                                                        onDragEnd = { finishHomeVideoDrop() },
+                                                        onDragCancel = { activeDraggedHomeVideo = null }
+                                                    )
+                                                }
+                                                .testTag("drag_handle_home_video_${video.id}"),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.DragIndicator,
+                                                contentDescription = "Drag video to playlist",
+                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                                modifier = Modifier.size(17.dp)
+                                            )
                                         }
                                     }
 
@@ -937,6 +990,7 @@ fun HomeScreen(
                                     Text(
                                         text = metaLine,
                                         style = MaterialTheme.typography.bodySmall,
+                                        fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
@@ -956,7 +1010,10 @@ fun HomeScreen(
                                                 Surface(
                                                     shape = RoundedCornerShape(6.dp),
                                                     color = if (savedPlaylists.size >= 2) Color(0xFF6A1B9A).copy(alpha = 0.14f) else Color(0xFF1B5E20).copy(alpha = 0.14f),
-                                                    modifier = Modifier.clickable { onSaveToPlaylist?.invoke(video) }
+                                                    modifier = Modifier.clickable {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        onSaveToPlaylist?.invoke(video)
+                                                    }
                                                 ) {
                                                     Row(
                                                         verticalAlignment = Alignment.CenterVertically,
@@ -984,16 +1041,18 @@ fun HomeScreen(
                                         }
                                     } else {
                                         Row(
+                                            modifier = Modifier.fillMaxWidth(),
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Surface(
                                                 shape = RoundedCornerShape(6.dp),
-                                                color = MaterialTheme.colorScheme.surfaceVariant
+                                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                                modifier = Modifier.weight(1f, fill = false)
                                             ) {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.PlaylistAdd,
@@ -1006,7 +1065,10 @@ fun HomeScreen(
                                                         text = "No Playlist",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        fontSize = 10.sp
+                                                        fontSize = 10.sp,
+                                                        maxLines = 1,
+                                                        softWrap = false,
+                                                        overflow = TextOverflow.Ellipsis
                                                     )
                                                 }
                                             }
@@ -1014,15 +1076,20 @@ fun HomeScreen(
                                                 Surface(
                                                     shape = RoundedCornerShape(6.dp),
                                                     color = MaterialTheme.colorScheme.primaryContainer,
-                                                    modifier = Modifier.clickable { onSaveToPlaylist(video) }
+                                                    modifier = Modifier.clickable {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        onSaveToPlaylist(video)
+                                                    }
                                                 ) {
                                                     Text(
-                                                        text = "+ सेव करें",
+                                                        text = "+ Save",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        maxLines = 1,
+                                                        softWrap = false,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                                     )
                                                 }
                                             }
@@ -1070,7 +1137,7 @@ fun HomeScreen(
                                         ) {
                                             if (noteMatchedSearch) {
                                                 Text(
-                                                    text = "👆 नीचे टाइम बैज पर टैप करते ही वीडियो सीधे उसी सीन से चलेगी:",
+                                                    text = "👆 Tap any timestamp badge below to jump directly to that scene:",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = Color(0xFFE65100),
                                                     fontSize = 9.sp,
@@ -1134,7 +1201,7 @@ fun HomeScreen(
                                             }
                                             if (parsedCardNotes.size > notesToShowOnCard.size) {
                                                 Text(
-                                                    text = "+ ${parsedCardNotes.size - notesToShowOnCard.size} और सीन नोट्स...",
+                                                    text = "+ ${parsedCardNotes.size - notesToShowOnCard.size} more scene notes...",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = Color(0xFFE65100),
                                                     fontSize = 9.sp,
@@ -1167,37 +1234,6 @@ fun HomeScreen(
                                             }
                                         }
                                     }
-                                }
-
-                                // Dedicated Drag Handle on Home Video Card for dragging into playlists
-                                var dragHandlePos by remember { mutableStateOf(Offset.Zero) }
-                                Box(
-                                    modifier = Modifier
-                                        .size(30.dp)
-                                        .onGloballyPositioned { dragHandlePos = it.positionInRoot() }
-                                        .pointerInput(video.id) {
-                                            detectDragGestures(
-                                                onDragStart = { localOffset ->
-                                                    activeDraggedHomeVideo = video
-                                                    dragPointerInRoot = dragHandlePos + localOffset
-                                                },
-                                                onDrag = { change, dragAmount ->
-                                                    change.consume()
-                                                    dragPointerInRoot += dragAmount
-                                                },
-                                                onDragEnd = { finishHomeVideoDrop() },
-                                                onDragCancel = { activeDraggedHomeVideo = null }
-                                            )
-                                        }
-                                        .testTag("drag_handle_home_video_${video.id}"),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DragIndicator,
-                                        contentDescription = "Drag video to playlist",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(19.dp)
-                                    )
                                 }
                             }
                         }
@@ -1263,7 +1299,7 @@ fun HomeScreen(
                             text = if (targetPlName != null) {
                                 "📥 Drop to save/move to '$targetPlName'"
                             } else {
-                                "🖐️ ऊपर किसी भी प्लेलिस्ट पर ड्रॉप करें"
+                                "🖐️ Drop onto any playlist chip at the top"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             fontSize = 10.sp,

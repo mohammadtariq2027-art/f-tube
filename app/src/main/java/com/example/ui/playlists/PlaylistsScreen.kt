@@ -59,6 +59,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -91,6 +93,7 @@ fun PlaylistsScreen(
     onOpenReminderScreen: (() -> Unit)? = null,
     onOpenDashboardTab: (() -> Unit)? = null
 ) {
+    val haptic = LocalHapticFeedback.current
     var playlistToDelete by remember { mutableStateOf<PlaylistEntity?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -144,12 +147,13 @@ fun PlaylistsScreen(
                 .background(MaterialTheme.colorScheme.background)
         ) {
             TopAppBar(
+                windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
                 title = {
                     if (isSearchActive) {
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("✨ AI Smart Search: रफ आईडिया, प्लेलिस्ट, वीडियो या सीन (6 min) खोजें...", fontSize = 11.sp) },
+                            placeholder = { Text("✨ AI Smart Search: playlist, video, note, or time (6 min)...", fontSize = 11.sp) },
                             singleLine = true,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -167,13 +171,19 @@ fun PlaylistsScreen(
                         Column {
                             Text(
                                 text = "Playlists (A–Z)",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold
+                                style = MaterialTheme.typography.titleMedium,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = if (searchQuery.isNotBlank()) "${filteredPlaylists.size} of ${playlists.size} playlists"
-                                else "कुल ${playlists.size} प्लेलिस्ट (A to Z)",
+                                else "Total ${playlists.size} playlists (A to Z)",
                                 style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -256,7 +266,7 @@ fun PlaylistsScreen(
 
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 88.dp),
+                contentPadding = PaddingValues(14.dp, 8.dp, 14.dp, 98.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // Banner to sync ALL playlists from YouTube account
@@ -292,14 +302,14 @@ fun PlaylistsScreen(
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column {
                                         Text(
-                                            text = if (userProfile.isSignedIn) "Google: ${userProfile.email}" else "YouTube प्लेलिस्ट व अकाउंट सिंक",
+                                            text = if (userProfile.isSignedIn) "Google: ${userProfile.email}" else "YouTube Playlists & Account Sync",
                                             style = MaterialTheme.typography.bodyMedium,
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = "आपकी कुल ${playlists.size} प्लेलिस्ट (A से Z) • रात को ऑटो-बैकअप सक्रिय",
+                                            text = "Total ${playlists.size} playlists (A to Z) • Nightly Auto-Backup active",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -310,7 +320,7 @@ fun PlaylistsScreen(
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                                 ) {
                                     Text(
-                                        text = "अकाउंट ⚙️",
+                                        text = "Account ⚙️",
                                         style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary,
@@ -331,25 +341,35 @@ fun PlaylistsScreen(
                                 },
                                 enabled = !isSyncing,
                                 shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .height(38.dp)
                                     .testTag("sync_all_youtube_playlists_button")
                             ) {
                                 if (isSyncing) {
                                     CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
+                                        modifier = Modifier.size(15.dp),
                                         strokeWidth = 2.dp,
                                         color = MaterialTheme.colorScheme.onPrimary
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("YouTube से सारी प्लेलिस्ट (A–Z) आ रही हैं...", fontSize = 12.sp)
+                                    Text(
+                                        text = "Syncing all playlists (A–Z) from YouTube...",
+                                        fontSize = 11.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 } else {
-                                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(15.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "🔄 YouTube से मेरी सारी प्लेलिस्ट (A–Z) लाएं / रीफ्रेश करें",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold
+                                        text = "🔄 Sync All Playlists (A–Z) from YouTube",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -365,7 +385,7 @@ fun PlaylistsScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "✨ AI Smart Search ('${searchQuery}'): ${filteredPlaylists.size} प्लेलिस्ट और ${matchedVideosAndNotes.size} मिलते-जुलते वीडियो/नोट्स मिले",
+                                text = "✨ AI Smart Search ('${searchQuery}'): ${filteredPlaylists.size} playlists & ${matchedVideosAndNotes.size} matching videos/notes",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -377,7 +397,7 @@ fun PlaylistsScreen(
                     if (matchedVideosAndNotes.isNotEmpty()) {
                         item(key = "matched_videos_notes_header") {
                             Text(
-                                text = "🎬 & 📝 AI खोज में मिले वीडियो और सीन नोट्स (${matchedVideosAndNotes.size}):",
+                                text = "🎬 & 📝 Matched Videos & Scene Notes (${matchedVideosAndNotes.size}):",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.primary
@@ -414,7 +434,7 @@ fun PlaylistsScreen(
                                             modifier = Modifier.padding(bottom = 6.dp)
                                         ) {
                                             Text(
-                                                text = "${aiMatch.matchReasonLabel} (${aiMatch.confidencePercent}% मैच)",
+                                                text = "${aiMatch.matchReasonLabel} (${aiMatch.confidencePercent}% Match)",
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color(0xFF6A1B9A),
@@ -518,22 +538,51 @@ fun PlaylistsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 FilterChip(
                                     selected = sortAlphabetically,
-                                    onClick = { sortAlphabetically = true },
-                                    label = { Text("🔤 A–Z (${playlists.size})") }
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        sortAlphabetically = true
+                                    },
+                                    label = {
+                                        Text(
+                                            text = "🔤 A–Z (${playlists.size})",
+                                            fontSize = 11.5.sp,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
                                 )
                                 FilterChip(
                                     selected = !sortAlphabetically,
-                                    onClick = { sortAlphabetically = false },
-                                    label = { Text("🕒 डिफ़ॉल्ट क्रम") }
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        sortAlphabetically = false
+                                    },
+                                    label = {
+                                        Text(
+                                            text = "🕒 Default",
+                                            fontSize = 11.5.sp,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
                                 )
                             }
-                            TextButton(onClick = { isSearchActive = true }) {
-                                Icon(imageVector = Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                            TextButton(
+                                onClick = { isSearchActive = true },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.Search, contentDescription = null, modifier = Modifier.size(15.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("वीडियो व नोट्स खोजें", fontSize = 12.sp)
+                                Text(
+                                    text = "Search Videos/Notes",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                         }
                     }
@@ -549,13 +598,13 @@ fun PlaylistsScreen(
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "कोई प्लेलिस्ट नहीं जुड़ी है",
+                                    text = "No Playlists Added Yet",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "ऊपर 'YouTube से मेरी सारी प्लेलिस्ट लाएं' बटन दबाएं या '+ Add YouTube Playlist' से लिंक पेस्ट करें।",
+                                    text = "Tap 'Sync All Playlists (A–Z) from YouTube' above or '+ Add YouTube Playlist' below.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -585,7 +634,7 @@ fun PlaylistsScreen(
                                 else MaterialTheme.colorScheme.surface
                             )
                         ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
+                            Column(modifier = Modifier.padding(12.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -599,12 +648,13 @@ fun PlaylistsScreen(
                                             imageVector = Icons.Default.PlaylistPlay,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier.size(22.dp)
                                         )
-                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
                                         Text(
                                             text = playlist.title,
                                             style = MaterialTheme.typography.titleMedium,
+                                            fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
@@ -626,7 +676,10 @@ fun PlaylistsScreen(
                                             )
                                         }
                                         IconButton(
-                                            onClick = { playlistToDelete = playlist },
+                                            onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                playlistToDelete = playlist
+                                            },
                                             modifier = Modifier.size(32.dp)
                                         ) {
                                             Icon(
@@ -639,7 +692,7 @@ fun PlaylistsScreen(
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(14.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -744,16 +797,17 @@ fun PlaylistsScreen(
     playlistToDelete?.let { pl ->
         AlertDialog(
             onDismissRequest = { playlistToDelete = null },
-            title = { Text("Delete '${pl.title}'?") },
-            text = { Text("Are you sure you want to delete this playlist?") },
+            title = { Text("Delete '${pl.title}'?", fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete the '${pl.title}' playlist?") },
             confirmButton = {
                 TextButton(
                     onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onDeletePlaylist(pl.playlistId)
                         playlistToDelete = null
                     }
                 ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text("Delete", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {

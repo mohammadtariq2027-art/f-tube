@@ -487,12 +487,12 @@ object FocusShield {
 
     private fun categorizeDistraction(keyword: String): String {
         return when {
-            MUSIC_KEYWORDS.contains(keyword) -> "Music & Songs (म्यूजिक/गाने)"
-            MOVIE_KEYWORDS.contains(keyword) -> "Movies & Cinema (फिल्म/मूवी)"
-            COMEDY_KEYWORDS.contains(keyword) -> "Comedy & Pranks (कॉमेडी/प्रैंक)"
-            ROASTING_KEYWORDS.contains(keyword) -> "Roasting (रोस्टिंग)"
-            GAMING_KEYWORDS.contains(keyword) -> "Casual Gaming (गेमिंग)"
-            SENSATIONAL_NEWS_GOSSIP_KEYWORDS.contains(keyword) -> "Sensational News & Gossip (फालतू की न्यूज)"
+            MUSIC_KEYWORDS.contains(keyword) -> "Music & Songs"
+            MOVIE_KEYWORDS.contains(keyword) -> "Movies & Cinema"
+            COMEDY_KEYWORDS.contains(keyword) -> "Comedy & Pranks"
+            ROASTING_KEYWORDS.contains(keyword) -> "Roasting"
+            GAMING_KEYWORDS.contains(keyword) -> "Casual Gaming"
+            SENSATIONAL_NEWS_GOSSIP_KEYWORDS.contains(keyword) -> "Sensational News & Gossip"
             else -> "Distraction"
         }
     }

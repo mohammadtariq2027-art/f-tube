@@ -94,7 +94,7 @@ object StartupReminderManager {
     private const val KEY_QUICK_CHIPS = "saved_quick_reminders"
 
     private const val DEFAULT_REMINDER_TEXT =
-        "🎯 आज मुझे इस ऐप में सिर्फ अपने काम और पढ़ाई की वीडियो देखनी है और ज़रूरी सीन के नोट्स बनाने हैं!"
+        "🎯 Today I will only watch productive work & study videos and take timestamped scene notes!"
 
     private val _reminderTextFlow = MutableStateFlow(DEFAULT_REMINDER_TEXT)
     val reminderTextFlow: StateFlow<String> = _reminderTextFlow.asStateFlow()
@@ -111,16 +111,16 @@ object StartupReminderManager {
         if (!isLoaded) {
             val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val savedText = prefs.getString(KEY_REMINDER_TEXT, null)
-            _reminderTextFlow.value = if (!savedText.isNullOrBlank()) savedText else DEFAULT_REMINDER_TEXT
+            _reminderTextFlow.value = if (!savedText.isNullOrBlank() && !savedText.contains("आज मुझे इस ऐप में")) savedText else DEFAULT_REMINDER_TEXT
             _fontBoostFlow.value = prefs.getInt(KEY_FONT_BOOST_LEVEL, 0)
             val rawChips = prefs.getString(KEY_QUICK_CHIPS, null)
-            if (!rawChips.isNullOrBlank()) {
+            if (!rawChips.isNullOrBlank() && !rawChips.contains("आज मुझे")) {
                 _savedQuickNotesFlow.value = rawChips.split("|||").map { it.trim() }.filter { it.isNotEmpty() }
             } else {
                 _savedQuickNotesFlow.value = listOf(
-                    "🎯 आज मुझे लेक्चर पूरा देख कर उसके सीन नोट्स बनाने हैं।",
-                    "📚 परीक्षा की तैयारी: पहले Pinned Playlist के 2 वीडियो पूरे करने हैं।",
-                    "⏳ सिर्फ 40 मिनट (हरे ज़ोन) के अंदर आज का टॉपिक खत्म करना है!"
+                    "🎯 Today I will finish my lecture and write timestamped scene notes.",
+                    "📚 Exam Prep: Complete 2 videos from my Pinned Playlist first.",
+                    "⏳ Finish today's key topic within 40 minutes (Green Safe Zone)!"
                 )
             }
             isLoaded = true
@@ -277,13 +277,13 @@ fun StartupReminderGateScreen(
                     }
                     Column {
                         Text(
-                            text = "📌 आज का मुख्य लक्ष्य / रिमाइंडर",
+                            text = "📌 Today's Focus Goal & Reminder",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.White
                         )
                         Text(
-                            text = "जब तक आप इसे पढ़ न लें, यह स्क्रीन यहीं रुकी रहेगी",
+                            text = "This screen stays open until you read and confirm your goal",
                             fontSize = 11.sp,
                             color = Color(0xFF80CBC4)
                         )
@@ -315,9 +315,9 @@ fun StartupReminderGateScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = when (fontBoostLevel) {
-                                    1 -> "XXL बड़ा"
+                                    1 -> "XXL Giant"
                                     2 -> "Normal"
-                                    else -> "XL फुल"
+                                    else -> "XL Full"
                                 },
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
@@ -352,7 +352,7 @@ fun StartupReminderGateScreen(
                         )
                         Spacer(modifier = Modifier.width(5.dp))
                         Text(
-                            text = if (isEditing) "सेव करें" else "✏️ लिखें / बदलें",
+                            text = if (isEditing) "Save" else "✏️ Edit Goal",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -402,14 +402,14 @@ fun StartupReminderGateScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "✍️ यहां अपना लक्ष्य या याद रखने वाली बात लिखें (फुल स्क्रीन पर बड़ा दिखेगा):",
+                                text = "✍️ Write your focus goal or reminder below (displayed in giant fullscreen text):",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF90CAF9)
                             )
                             if (draftText.isNotEmpty()) {
                                 Text(
-                                    text = "साफ़ करें (Clear)",
+                                    text = "Clear",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFFFF8A80),
@@ -425,7 +425,7 @@ fun StartupReminderGateScreen(
                             onValueChange = { draftText = it },
                             placeholder = {
                                 Text(
-                                    text = "उदाहरण: आज मुझे Physics का Chapter 4 पूरा करना है और उसके सीन नोट्स बनाने हैं...",
+                                    text = "Example: Today I will complete Chapter 4 and write timestamped notes...",
                                     fontSize = 20.sp,
                                     color = Color.White.copy(alpha = 0.4f)
                                 )
@@ -455,7 +455,7 @@ fun StartupReminderGateScreen(
                         // Quick Saved Goal Templates
                         if (savedQuickNotes.isNotEmpty()) {
                             Text(
-                                text = "⚡ आपके पिछले / सेव किए गए रिमाइंडर (1 टैप में चुनें):",
+                                text = "⚡ Saved / Quick Goal Presets (Tap to select):",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFFB0BEC5)
@@ -499,7 +499,7 @@ fun StartupReminderGateScreen(
                             ) {
                                 Icon(imageVector = Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("रद्द करें (Cancel)", fontWeight = FontWeight.Bold)
+                                Text("Cancel", fontWeight = FontWeight.Bold)
                             }
 
                             Button(
@@ -518,7 +518,7 @@ fun StartupReminderGateScreen(
                             ) {
                                 Icon(imageVector = Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("सेव करें (Save)", fontWeight = FontWeight.ExtraBold)
+                                Text("Save Goal", fontWeight = FontWeight.ExtraBold)
                             }
                         }
                     }
@@ -566,7 +566,7 @@ fun StartupReminderGateScreen(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "टेक्स्ट बदलने के लिए यहां टैप करें",
+                                    text = "Tap here to edit your focus reminder",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = Color(0xFF80CBC4)
@@ -598,7 +598,7 @@ fun StartupReminderGateScreen(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "📖 कृपया पहले अपना लक्ष्य ध्यान से पढ़ें (${readingCountdownSeconds} सेकंड)...",
+                            text = "📖 Please read your focus goal carefully (${readingCountdownSeconds}s)...",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFFFD54F)
@@ -642,9 +642,9 @@ fun StartupReminderGateScreen(
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = if (readingCountdownSeconds > 0 && !isEditing) {
-                            "✅ मैंने पढ़ लिया — ऐप खोलें (${readingCountdownSeconds}s)"
+                            "✅ I Have Read My Goal — Open App (${readingCountdownSeconds}s)"
                         } else {
-                            "✅ मैंने पढ़ लिया — अब नॉर्मल ऐप खोलें"
+                            "✅ I Have Read My Goal — Open App"
                         },
                         fontSize = 16.sp,
                         fontWeight = FontWeight.ExtraBold
